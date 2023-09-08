@@ -1,9 +1,9 @@
-// <copyright file="BrowserLauncher.cs" company="WebDriverBidi.NET Committers">
-// Copyright (c) WebDriverBidi.NET Committers. All rights reserved.
+// <copyright file="BrowserLauncher.cs" company="WebDriverBiDi.NET Committers">
+// Copyright (c) WebDriverBiDi.NET Committers. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 // </copyright>
 
-namespace WebDriverBidi.Client;
+namespace WebDriverBiDi.Client;
 
 using System.Diagnostics;
 using System.Net;
@@ -148,7 +148,7 @@ public abstract class BrowserLauncher
     /// <param name="launcherPath">The path to the browser launcher, not including the executable name.</param>
     /// <param name="browserExecutableLocation">The path and executable name of the browser executable.</param>
     /// <returns>The launcher for the specified browser type.</returns>
-    /// <exception cref="WebDriverBidiException">Thrown when an invalid browser type is specified.</exception>
+    /// <exception cref="WebDriverBiDiException">Thrown when an invalid browser type is specified.</exception>
     public static BrowserLauncher Create(BrowserType browserType, string launcherPath, string browserExecutableLocation = "")
     {
         if (browserType == BrowserType.Firefox)
@@ -161,7 +161,7 @@ public abstract class BrowserLauncher
             return new ChromeLauncher(launcherPath, browserExecutableLocation);
         }
 
-        throw new WebDriverBidiException("Invalid browser type");
+        throw new WebDriverBiDiException("Invalid browser type");
     }
 
     /// <summary>
@@ -214,7 +214,7 @@ public abstract class BrowserLauncher
         if (!launcherAvailable)
         {
             string msg = "Cannot start the browser launcher on " + this.ServiceUrl;
-            throw new WebDriverBidiException(msg);
+            throw new WebDriverBiDiException(msg);
         }
     }
 

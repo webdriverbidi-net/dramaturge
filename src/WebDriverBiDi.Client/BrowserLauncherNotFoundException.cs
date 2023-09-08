@@ -1,9 +1,9 @@
-// <copyright file="BrowserLauncherNotFoundException.cs" company="WebDriverBidi.NET Committers">
-// Copyright (c) WebDriverBidi.NET Committers. All rights reserved.
+// <copyright file="BrowserLauncherNotFoundException.cs" company="WebDriverBiDi.NET Committers">
+// Copyright (c) WebDriverBiDi.NET Committers. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 // </copyright>
 
-namespace WebDriverBidi.Client;
+namespace WebDriverBiDi.Client;
 
 /// <summary>
 /// The exception that is thrown when an element is not visible.
