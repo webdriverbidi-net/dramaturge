@@ -392,14 +392,15 @@ jobs:
           mv "$GITHUB_WORKSPACE/browsers/chrome-linux64" "$GITHUB_WORKSPACE/browsers/chrome-canary"
 
       - name: Run integration tests
-        run: dotnet test --project test/Dramaturge.IntegrationTests --configuration Release --no-build --verbosity normal
+        # The runner has no display; the tests launch headed browsers, so they run on a virtual one.
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" dotnet test --project test/Dramaturge.IntegrationTests --configuration Release --no-build --verbosity normal
         env:
           CI: true
           FIREFOX_EXECUTABLE: ${{ matrix.browser.browser-type == 'firefox' && format('{0}/browsers/firefox/firefox', github.workspace) || '' }}
           CHROME_EXECUTABLE: ${{ matrix.browser.browser-type == 'chrome' && format('{0}/browsers/chrome-canary/chrome', github.workspace) || '' }}
 
       - name: Run examples
-        run: dotnet test --project samples/Dramaturge.Examples --configuration Release --no-build --verbosity normal
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" dotnet test --project samples/Dramaturge.Examples --configuration Release --no-build --verbosity normal
         env:
           CI: true
           DRAMATURGE_BROWSER: ${{ matrix.browser.browser-type }}
