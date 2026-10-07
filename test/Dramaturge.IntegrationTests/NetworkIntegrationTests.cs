@@ -142,6 +142,7 @@ public class NetworkIntegrationTests
     {
         await using TestPageServer server = await TestPageServer.StartAsync();
         await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        NetworkTranscript transcript = NetworkTranscript.Record(group);
         Page page = await OpenAsync(group, server);
         Browser other = await group.CreateBrowserAsync(cancellationToken: TestContext.Current.CancellationToken);
         Page otherPage = await other.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
@@ -150,7 +151,10 @@ public class NetworkIntegrationTests
 
         string fromPage = await ClickAndReadAsync(page, "#fetch-file", "file");
         string fromWorker = await ClickAndReadAsync(page, "#fetch-worker", "worker");
-        string fromOtherBrowser = await ClickAndReadAsync(otherPage, "#fetch-file", "file");
+
+        // Chrome on Linux has sometimes left this fetch unanswered; the messages show where the request stopped.
+        string fromOtherBrowser = string.Empty;
+        await transcript.ExplainAsync(async () => fromOtherBrowser = await ClickAndReadAsync(otherPage, "#fetch-file", "file"));
 
         Assert.Equal("routed data", fromPage);
         Assert.Equal("routed data", fromWorker);

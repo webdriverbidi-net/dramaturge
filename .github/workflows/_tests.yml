@@ -106,11 +106,13 @@ jobs:
           --coverlet-include "[Dramaturge.MSTest]*"
           --results-directory test/coverage --coverlet-file-prefix lcov-mstest
 
+      # An explicit exclude turns off coverlet's exclusion of assemblies already loaded when tests start, which
+      # TUnit's generated hook registration makes of Dramaturge.TUnit.
       - name: Test TUnit package (with coverage)
         run: >
           dotnet test --project test/Dramaturge.TUnit.Tests --configuration Release --no-build --verbosity normal
           --coverlet --coverlet-output-format lcov
-          --coverlet-include "[Dramaturge.TUnit]*"
+          --coverlet-include "[Dramaturge.TUnit]*" --coverlet-exclude "[TUnit*]*"
           --results-directory test/coverage --coverlet-file-prefix lcov-tunit
 
       # These tests reach what each package's own cannot: no shared browser registered. A report names its sources, not
@@ -224,11 +226,13 @@ jobs:
           --coverlet-include "[Dramaturge.MSTest]*"
           --results-directory test/coverage-debug --coverlet-file-prefix lcov-mstest
 
+      # An explicit exclude turns off coverlet's exclusion of assemblies already loaded when tests start, which
+      # TUnit's generated hook registration makes of Dramaturge.TUnit.
       - name: Test TUnit package (with coverage)
         run: >
           dotnet test --project test/Dramaturge.TUnit.Tests --configuration Debug --no-build --verbosity normal
           --coverlet --coverlet-output-format lcov
-          --coverlet-include "[Dramaturge.TUnit]*"
+          --coverlet-include "[Dramaturge.TUnit]*" --coverlet-exclude "[TUnit*]*"
           --results-directory test/coverage-debug --coverlet-file-prefix lcov-tunit
 
       # These tests reach what each package's own cannot: no shared browser registered. A report names its sources, not

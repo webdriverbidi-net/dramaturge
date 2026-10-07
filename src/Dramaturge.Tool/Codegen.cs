@@ -81,7 +81,7 @@ internal static class Codegen
 
             recording.OnStatement.AddObserver(e =>
             {
-                output.WriteLine(e.Statement);
+                WriteCode(output, e.Statement);
                 Save(recording, settings.OutputPath, error);
             });
             recording.OnLocatorPicked.AddObserver(e => error.WriteLine($"Picked: {e.Code}"));
@@ -96,7 +96,7 @@ internal static class Codegen
             if (settings.OutputPath is null)
             {
                 output.WriteLine();
-                output.Write(code);
+                WriteCode(output, code);
             }
             else if (Save(recording, settings.OutputPath, error))
             {
@@ -104,6 +104,15 @@ internal static class Codegen
             }
 
             return 0;
+        }
+    }
+
+    // Code is written with the console's line endings, not the "\n" it is generated with.
+    private static void WriteCode(TextWriter output, string code)
+    {
+        foreach (string line in code.TrimEnd('\n').Split('\n'))
+        {
+            output.WriteLine(line);
         }
     }
 

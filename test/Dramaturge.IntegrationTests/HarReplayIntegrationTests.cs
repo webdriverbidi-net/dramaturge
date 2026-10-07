@@ -30,6 +30,7 @@ public sealed class HarReplayIntegrationTests : IDisposable
     {
         await using TestPageServer server = await TestPageServer.StartAsync();
         await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        NetworkTranscript transcript = NetworkTranscript.Record(group);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
         string har = this.WriteHar(
             Entry("GET", server.UrlFor("replayed.html"), 200, "text/html", "<!DOCTYPE html><title>Replayed page</title>"),
@@ -42,7 +43,13 @@ public sealed class HarReplayIntegrationTests : IDisposable
         string[] fetched = await page.EvaluateAsync<string[]>("async () => { const response = await fetch('old-data'); return [await response.text(), response.url, String(response.redirected)]; }", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("Replayed page", title);
-        Assert.Equal(["replayed data", server.UrlFor("new-data"), "true"], fetched);
+
+        // Chrome on Linux has sometimes let this fetch reach the server; the messages show which request escaped.
+        await transcript.ExplainAsync(() =>
+        {
+            Assert.Equal(["replayed data", server.UrlFor("new-data"), "true"], fetched);
+            return Task.CompletedTask;
+        });
     }
 
     [Theory]

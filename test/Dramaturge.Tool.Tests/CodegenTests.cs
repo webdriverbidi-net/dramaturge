@@ -79,8 +79,8 @@ public sealed class CodegenTests : IDisposable
         string page = session.Contexts[0].Id;
         await SendClickAsync(session, channel, page, "#first");
         await SendClickAsync(session, channel, page, "#second");
-        await WaitUntilAsync(() => File.Exists(path) && File.ReadAllText(path).Contains("#first"));
-        string current = File.ReadAllText(path);
+        string? current = null;
+        await WaitUntilAsync(() => (current = ReadWhenWritten(path))?.Contains("#first") == true);
         cancellation.Cancel();
         ToolResult result = await running;
 
@@ -111,7 +111,7 @@ public sealed class CodegenTests : IDisposable
         await SendAsync(session, channel, session.Contexts[0].Id, Action("pick", "#go"));
         await SendClickAsync(session, channel, session.Contexts[0].Id, "#first");
         await SendClickAsync(session, channel, session.Contexts[0].Id, "#second");
-        await WaitUntilAsync(() => File.Exists(path) && File.ReadAllText(path).Contains("#first"));
+        await WaitUntilAsync(() => ReadWhenWritten(path)?.Contains("#first") == true);
         cancellation.Cancel();
         ToolResult result = await running;
 
@@ -241,6 +241,19 @@ public sealed class CodegenTests : IDisposable
     private static JsonObject Context(string contextId)
     {
         return new JsonObject() { ["context"] = contextId, ["clientWindow"] = $"window-for-{contextId}", ["url"] = "https://example.com/", ["userContext"] = "default", ["children"] = null, ["originalOpener"] = null };
+    }
+
+    // The file the tool is writing, or null while it does not exist or, on Windows, is open for writing.
+    private static string? ReadWhenWritten(string path)
+    {
+        try
+        {
+            return File.ReadAllText(path);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)
