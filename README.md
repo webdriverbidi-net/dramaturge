@@ -74,9 +74,6 @@ To check Dramaturge under native AOT, publish the test application and run it ag
     artifacts/aot/Dramaturge.AotTestApplication firefox
     artifacts/aot/Dramaturge.AotTestApplication chrome
 
-Until Dramaturge moves to a repository of its own, it builds against the `WebDriverBiDi` and
-`WebDriverBiDi.Extensions` projects of the repository around it, rather than their packages.
-
 | Directory | Contents |
 | --- | --- |
 | `src` | The `Dramaturge`, `Dramaturge.Browsers`, and `Dramaturge.Tool` projects; the test framework packages, `Dramaturge.Xunit`, `Dramaturge.NUnit`, `Dramaturge.MSTest`, and `Dramaturge.TUnit`, with the sources they share in `Dramaturge.Testing.Shared` |
@@ -85,7 +82,7 @@ Until Dramaturge moves to a repository of its own, it builds against the `WebDri
 | `docs` | The documentation site; `docs/README.md` describes it |
 | `third_party` | The vendored Acquiescence element-state library and chromium-bidi mapper, with their licenses |
 | `scripts` | Scripts for coverage thresholds and merging coverage reports, checking the release's packages, and updating the chromium-bidi mapper |
-| `.github` | The CI and release workflows, which take effect once this directory is a repository of its own |
+| `.github` | The CI and release workflows |
 | `skills` | The `dramaturge` agent skill, and the plugin that `.claude-plugin/marketplace.json` publishes it as |
 
 ## License

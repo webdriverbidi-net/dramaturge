@@ -41,9 +41,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../../src/WebDriverBiDi/WebDriverBiDi.csproj" />
     <ProjectReference Include="../Dramaturge.Browsers/Dramaturge.Browsers.csproj" />
-    <ProjectReference Include="../../../src/WebDriverBiDi.Extensions/WebDriverBiDi.Extensions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WebDriverBiDi" Version="0.0.63" />
+    <PackageReference Include="WebDriverBiDi.Extensions" Version="0.0.63" />
   </ItemGroup>
 
   <ItemGroup>

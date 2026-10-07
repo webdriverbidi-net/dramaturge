@@ -42,7 +42,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../../src/WebDriverBiDi/WebDriverBiDi.csproj" />
+    <PackageReference Include="WebDriverBiDi" Version="0.0.63" />
   </ItemGroup>
 
   <ItemGroup>
