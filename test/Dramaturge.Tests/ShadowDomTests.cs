@@ -134,12 +134,12 @@ public class ShadowDomTests
         Assert.Equal(["document-1", "root-1"], labelArguments.Skip(2).Select(argument => (string?)argument!["sharedId"]));
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page)> OpenPageAsync(bool pierce = false)
+    private static async Task<OpenedPage> OpenPageAsync(bool pierce = false)
     {
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { PierceShadowRoots = pierce }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page);
+        return new OpenedPage(driver, session, page);
     }
 
     private static bool IsRootsCall(JsonObject parameters)

@@ -274,7 +274,7 @@ public sealed class Browser
     /// <returns>A task that completes when the behavior is set.</returns>
     public Task AllowDownloadsAsync(string destinationFolder, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Allow downloads", "{folder}", "allowDownloads", ("folder", destinationFolder)), cancellationToken, budget => this.SetDownloadBehaviorAsync(new DownloadBehaviorAllowed(destinationFolder), budget.CancellationToken));
+        return this.TraceAsync(Call("Allow downloads", "{folder}", "allowDownloads", new TraceParameter("folder", destinationFolder)), cancellationToken, budget => this.SetDownloadBehaviorAsync(new DownloadBehaviorAllowed(destinationFolder), budget.CancellationToken));
     }
 
     /// <summary>
@@ -535,7 +535,7 @@ public sealed class Browser
         }
     }
 
-    private static TracedCall Call(string title, string? subtitle, string method, params (string Name, object Value)[] parameters)
+    private static TracedCall Call(string title, string? subtitle, string method, params TraceParameter[] parameters)
     {
         return TraceRecording.Call("Browser", title, subtitle, method, parameters);
     }
@@ -599,7 +599,7 @@ public sealed class Browser
 
     private Task<RouteRegistration> AddHarRouteAsync(string harPath, Func<RequestData, bool> matches, string description, HarRouteOptions? options, CancellationToken cancellationToken)
     {
-        return this.TraceAsync(Call("Route from HAR", "{har}", "routeFromHAR", ("har", harPath), ("url", description)), cancellationToken, budget => this.AddHarRouteCoreAsync(harPath, matches, description, options, budget.CancellationToken));
+        return this.TraceAsync(Call("Route from HAR", "{har}", "routeFromHAR", new TraceParameter("har", harPath), new TraceParameter("url", description)), cancellationToken, budget => this.AddHarRouteCoreAsync(harPath, matches, description, options, budget.CancellationToken));
     }
 
     private async Task<RouteRegistration> AddHarRouteCoreAsync(string harPath, Func<RequestData, bool> matches, string description, HarRouteOptions? options, CancellationToken cancellationToken)
@@ -620,7 +620,7 @@ public sealed class Browser
     // to pages, but not to a user context.
     private Task<RouteRegistration> AddRouteAsync(Func<RequestData, bool> matches, string description, Func<Route, Task> handler, UrlPattern? filter, CancellationToken cancellationToken)
     {
-        return this.TraceAsync(Call("Route", "{url}", "route", ("url", description)), cancellationToken, budget => this.AddRouteCoreAsync(matches, description, handler, filter, budget.CancellationToken));
+        return this.TraceAsync(Call("Route", "{url}", "route", new TraceParameter("url", description)), cancellationToken, budget => this.AddRouteCoreAsync(matches, description, handler, filter, budget.CancellationToken));
     }
 
     private async Task<RouteRegistration> AddRouteCoreAsync(Func<RequestData, bool> matches, string description, Func<Route, Task> handler, UrlPattern? filter, CancellationToken cancellationToken, Func<CancellationToken, Task>? removing = null)

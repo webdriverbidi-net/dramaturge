@@ -90,7 +90,7 @@ public class ContentFrameTests
         await Assert.ThrowsAsync<AmbiguousElementException>(() => page.Locate(new CssLocator("iframe")).ContentFrameAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page, FakeTimeProvider Time)> OpenPageWithFrameAsync()
+    private static async Task<TimedPage> OpenPageWithFrameAsync()
     {
         FakeTimeProvider time = new();
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
@@ -98,7 +98,7 @@ public class ContentFrameTests
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
         await session.CreateFrameAsync(page.Id);
         await driver.Session.StatusAsync(new WebDriverBiDi.Session.StatusCommandParameters(), cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page, time);
+        return new TimedPage(driver, session, page, time);
     }
 
     private static JsonObject Window(string contextId)

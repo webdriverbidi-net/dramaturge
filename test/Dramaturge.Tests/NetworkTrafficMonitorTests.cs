@@ -615,11 +615,11 @@ public class NetworkTrafficMonitorTests
         Assert.Throws<ArgumentOutOfRangeException>(() => options.MaxAuthAttempts = 0);
     }
 
-    private static async Task<(BiDiDriver Driver, FakeRemoteEnd RemoteEnd)> ConnectAsync()
+    private static async Task<FakeRemoteEnd.ConnectedDriver> ConnectAsync()
     {
         (BiDiDriver driver, FakeRemoteEnd remoteEnd) = await FakeRemoteEnd.ConnectAsync();
         remoteEnd.AnswerWith("network.getData", parameters => new JsonObject() { ["bytes"] = new JsonObject() { ["type"] = "string", ["value"] = $"{parameters["dataType"]} body" } });
-        return (driver, remoteEnd);
+        return new FakeRemoteEnd.ConnectedDriver(driver, remoteEnd);
     }
 
     private static string InterceptIdFor(FakeRemoteEnd remoteEnd, int index) => (string)remoteEnd.ResultsFor("network.addIntercept")[index - 1]["intercept"]!;

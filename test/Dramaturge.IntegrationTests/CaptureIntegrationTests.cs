@@ -22,18 +22,18 @@ public class CaptureIntegrationTests
         Page page = await OpenAsync(group, server);
         await page.SetViewportSizeAsync(400, 300, TestContext.Current.CancellationToken);
 
-        (int Width, int Height) viewport = PngSize(await page.ScreenshotAsync(cancellationToken: TestContext.Current.CancellationToken));
-        (int Width, int Height) document = PngSize(await page.ScreenshotAsync(new PageScreenshotOptions() { FullPage = true }, TestContext.Current.CancellationToken));
-        (int Width, int Height) clip = PngSize(await page.ScreenshotAsync(new PageScreenshotOptions() { Clip = new BoxClipRectangle() { X = 10, Y = 20, Width = 50, Height = 40 } }, TestContext.Current.CancellationToken));
+        ImageSize viewport = PngSize(await page.ScreenshotAsync(cancellationToken: TestContext.Current.CancellationToken));
+        ImageSize document = PngSize(await page.ScreenshotAsync(new PageScreenshotOptions() { FullPage = true }, TestContext.Current.CancellationToken));
+        ImageSize clip = PngSize(await page.ScreenshotAsync(new PageScreenshotOptions() { Clip = new BoxClipRectangle() { X = 10, Y = 20, Width = 50, Height = 40 } }, TestContext.Current.CancellationToken));
         byte[] jpeg = await page.ScreenshotAsync(new PageScreenshotOptions() { Format = new ImageFormat() { Type = "image/jpeg" } }, TestContext.Current.CancellationToken);
         int documentHeight = await page.EvaluateAsync<int>("() => document.documentElement.scrollHeight", cancellationToken: TestContext.Current.CancellationToken);
 
         int scale = viewport.Width / 400;
         Assert.True(scale >= 1);
-        Assert.Equal((400 * scale, 300 * scale), viewport);
+        Assert.Equal(new ImageSize(400 * scale, 300 * scale), viewport);
         Assert.True(documentHeight >= 2000);
-        Assert.Equal((400 * scale, documentHeight * scale), document);
-        Assert.Equal((50 * scale, 40 * scale), clip);
+        Assert.Equal(new ImageSize(400 * scale, documentHeight * scale), document);
+        Assert.Equal(new ImageSize(50 * scale, 40 * scale), clip);
         Assert.Equal([0xFF, 0xD8], jpeg.Take(2));
     }
 
@@ -80,9 +80,11 @@ public class CaptureIntegrationTests
     }
 
     // A PNG's width and height are big-endian integers at bytes 16 and 20 of its header.
-    private static (int Width, int Height) PngSize(byte[] image)
+    private static ImageSize PngSize(byte[] image)
     {
         Assert.Equal([0x89, (byte)'P', (byte)'N', (byte)'G'], image.Take(4));
-        return ((image[16] << 24) | (image[17] << 16) | (image[18] << 8) | image[19], (image[20] << 24) | (image[21] << 16) | (image[22] << 8) | image[23]);
+        return new ImageSize((image[16] << 24) | (image[17] << 16) | (image[18] << 8) | image[19], (image[20] << 24) | (image[21] << 16) | (image[22] << 8) | image[23]);
     }
+
+    private readonly record struct ImageSize(int Width, int Height);
 }

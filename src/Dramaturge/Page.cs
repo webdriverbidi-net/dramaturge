@@ -255,7 +255,7 @@ public sealed class Page
     /// <returns>The URL navigated to, after any redirects.</returns>
     public Task<string> NavigateAsync(string url, ReadinessState wait = ReadinessState.Complete, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Navigate", "{url}", "goto", ("url", url)), this.CreateNavigationBudget(timeout, cancellationToken), budget => this.MainFrame.NavigateCoreAsync(url, wait, budget));
+        return this.TraceAsync(Call("Navigate", "{url}", "goto", new TraceParameter("url", url)), this.CreateNavigationBudget(timeout, cancellationToken), budget => this.MainFrame.NavigateCoreAsync(url, wait, budget));
     }
 
     /// <summary>
@@ -308,7 +308,7 @@ public sealed class Page
     /// <returns>A task that completes when the document has loaded as far as the state.</returns>
     public Task WaitForLoadStateAsync(ReadinessState state = ReadinessState.Complete, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Wait for load state", "{state}", "waitForLoadState", ("state", state.ToString())), this.CreateNavigationBudget(timeout, cancellationToken), budget => this.MainFrame.WaitForLoadStateAsync(state, budget));
+        return this.TraceAsync(Call("Wait for load state", "{state}", "waitForLoadState", new TraceParameter("state", state.ToString())), this.CreateNavigationBudget(timeout, cancellationToken), budget => this.MainFrame.WaitForLoadStateAsync(state, budget));
     }
 
     /// <summary>
@@ -374,7 +374,7 @@ public sealed class Page
     /// <returns>The function's result.</returns>
     public Task<RemoteValue> EvaluateAsync(string function, IEnumerable<LocalValue>? arguments = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Evaluate", null, "evaluate", ("function", function)), this.CreateActionBudget(timeout, cancellationToken), budget => this.MainFrame.EvaluateCoreAsync(function, arguments, budget));
+        return this.TraceAsync(Call("Evaluate", null, "evaluate", new TraceParameter("function", function)), this.CreateActionBudget(timeout, cancellationToken), budget => this.MainFrame.EvaluateCoreAsync(function, arguments, budget));
     }
 
     /// <summary>
@@ -389,7 +389,7 @@ public sealed class Page
     /// <returns>The function's result, converted.</returns>
     public Task<T> EvaluateAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>(string function, IEnumerable<LocalValue>? arguments = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Evaluate", null, "evaluate", ("function", function)), this.CreateActionBudget(timeout, cancellationToken), async budget => RemoteValueConverter.Convert<T>(await this.MainFrame.EvaluateCoreAsync(function, arguments, budget).ConfigureAwait(false)));
+        return this.TraceAsync(Call("Evaluate", null, "evaluate", new TraceParameter("function", function)), this.CreateActionBudget(timeout, cancellationToken), async budget => RemoteValueConverter.Convert<T>(await this.MainFrame.EvaluateCoreAsync(function, arguments, budget).ConfigureAwait(false)));
     }
 
     /// <summary>
@@ -403,7 +403,7 @@ public sealed class Page
     /// <returns>The truthy value.</returns>
     public Task<RemoteValue> WaitForFunctionAsync(string function, IEnumerable<LocalValue>? arguments = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Wait for function", null, "waitForFunction", ("function", function)), this.CreateActionBudget(timeout, cancellationToken), budget => this.MainFrame.WaitForFunctionCoreAsync(function, arguments, budget));
+        return this.TraceAsync(Call("Wait for function", null, "waitForFunction", new TraceParameter("function", function)), this.CreateActionBudget(timeout, cancellationToken), budget => this.MainFrame.WaitForFunctionCoreAsync(function, arguments, budget));
     }
 
     /// <summary>
@@ -418,7 +418,7 @@ public sealed class Page
     /// <returns>The truthy value, converted.</returns>
     public Task<T> WaitForFunctionAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>(string function, IEnumerable<LocalValue>? arguments = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Wait for function", null, "waitForFunction", ("function", function)), this.CreateActionBudget(timeout, cancellationToken), async budget => RemoteValueConverter.Convert<T>(await this.MainFrame.WaitForFunctionCoreAsync(function, arguments, budget).ConfigureAwait(false)));
+        return this.TraceAsync(Call("Wait for function", null, "waitForFunction", new TraceParameter("function", function)), this.CreateActionBudget(timeout, cancellationToken), async budget => RemoteValueConverter.Convert<T>(await this.MainFrame.WaitForFunctionCoreAsync(function, arguments, budget).ConfigureAwait(false)));
     }
 
     /// <summary>
@@ -444,7 +444,7 @@ public sealed class Page
     /// <returns>The added script, which can be removed.</returns>
     public Task<InitScript> AddInitScriptAsync(string function, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Add init script", null, "addInitScript", ("function", function)), this.CreateActionBudget(null, cancellationToken), async budget =>
+        return this.TraceAsync(Call("Add init script", null, "addInitScript", new TraceParameter("function", function)), this.CreateActionBudget(null, cancellationToken), async budget =>
         {
             AddPreloadScriptCommandParameters parameters = new(function);
             parameters.Contexts.Add(this.Id);
@@ -597,7 +597,7 @@ public sealed class Page
     public Task SetViewportSizeAsync(ulong width, ulong height, CancellationToken cancellationToken = default)
     {
         string size = $"{width}x{height}";
-        return this.TraceAsync(Call("Set viewport size", "{size}", "setViewportSize", ("size", size)), this.CreateActionBudget(null, cancellationToken), budget => this.SetViewportAsync(new Viewport() { Width = width, Height = height }, budget.CancellationToken));
+        return this.TraceAsync(Call("Set viewport size", "{size}", "setViewportSize", new TraceParameter("size", size)), this.CreateActionBudget(null, cancellationToken), budget => this.SetViewportAsync(new Viewport() { Width = width, Height = height }, budget.CancellationToken));
     }
 
     /// <summary>
@@ -1106,7 +1106,7 @@ public sealed class Page
         }
     }
 
-    private static TracedCall Call(string title, string? subtitle, string method, params (string Name, object Value)[] parameters)
+    private static TracedCall Call(string title, string? subtitle, string method, params TraceParameter[] parameters)
     {
         return TraceRecording.Call("Page", title, subtitle, method, parameters);
     }
@@ -1133,7 +1133,7 @@ public sealed class Page
 
     private Task<string> WaitForUrlAsync(Func<string, bool> matches, string awaited, ReadinessState wait, TimeSpan? timeout, CancellationToken cancellationToken)
     {
-        return this.TraceAsync(Call("Wait for URL", "{url}", "waitForURL", ("url", awaited)), this.CreateNavigationBudget(timeout, cancellationToken), budget => this.MainFrame.WaitForUrlCoreAsync(matches, awaited, wait, budget));
+        return this.TraceAsync(Call("Wait for URL", "{url}", "waitForURL", new TraceParameter("url", awaited)), this.CreateNavigationBudget(timeout, cancellationToken), budget => this.MainFrame.WaitForUrlCoreAsync(matches, awaited, wait, budget));
     }
 
     private Task SetViewportAsync(Viewport viewport, CancellationToken cancellationToken)
@@ -1143,7 +1143,7 @@ public sealed class Page
 
     private Task<RouteRegistration> AddHarRouteAsync(string harPath, Func<RequestData, bool> matches, string description, HarRouteOptions? options, CancellationToken cancellationToken)
     {
-        return this.TraceAsync(Call("Route from HAR", "{har}", "routeFromHAR", ("har", harPath), ("url", description)), this.CreateActionBudget(null, cancellationToken), budget => this.AddHarRouteCoreAsync(harPath, matches, description, options, budget.CancellationToken));
+        return this.TraceAsync(Call("Route from HAR", "{har}", "routeFromHAR", new TraceParameter("har", harPath), new TraceParameter("url", description)), this.CreateActionBudget(null, cancellationToken), budget => this.AddHarRouteCoreAsync(harPath, matches, description, options, budget.CancellationToken));
     }
 
     private async Task<RouteRegistration> AddHarRouteCoreAsync(string harPath, Func<RequestData, bool> matches, string description, HarRouteOptions? options, CancellationToken cancellationToken)
@@ -1164,7 +1164,7 @@ public sealed class Page
     // intercept that stopped it.
     private Task<RouteRegistration> AddRouteAsync(Func<RequestData, bool> matches, string description, Func<Route, Task> handler, UrlPattern? filter, CancellationToken cancellationToken)
     {
-        return this.TraceAsync(Call("Route", "{url}", "route", ("url", description)), this.CreateActionBudget(null, cancellationToken), budget => this.AddRouteCoreAsync(matches, description, handler, filter, budget.CancellationToken));
+        return this.TraceAsync(Call("Route", "{url}", "route", new TraceParameter("url", description)), this.CreateActionBudget(null, cancellationToken), budget => this.AddRouteCoreAsync(matches, description, handler, filter, budget.CancellationToken));
     }
 
     private async Task<RouteRegistration> AddRouteCoreAsync(Func<RequestData, bool> matches, string description, Func<Route, Task> handler, UrlPattern? filter, CancellationToken cancellationToken, Func<CancellationToken, Task>? removing = null)
@@ -1192,7 +1192,7 @@ public sealed class Page
     // The kind is request or response.
     private Task<T> RunAndWaitForNetworkEventAsync<T>(List<NetworkWaiter<T>> waiters, string kind, Func<Task> action, Func<RequestData, bool> matches, string awaited, TimeSpan? timeout, CancellationToken cancellationToken)
     {
-        TracedCall call = Call($"Run and wait for {kind}", "{url}", $"waitFor{kind}", ("url", awaited));
+        TracedCall call = Call($"Run and wait for {kind}", "{url}", $"waitFor{kind}", new TraceParameter("url", awaited));
         return this.TraceAsync(call, this.CreateNavigationBudget(timeout, cancellationToken), budget => this.RunAndWaitForNetworkEventCoreAsync(waiters, action, matches, awaited, budget));
     }
 

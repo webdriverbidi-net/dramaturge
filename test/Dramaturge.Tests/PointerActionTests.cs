@@ -255,13 +255,13 @@ public class PointerActionTests
         await Assert.ThrowsAsync<AmbiguousElementException>(() => page.Locate(new CssLocator("section")).ScrollIntoViewIfNeededAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page, FakeTimeProvider Time)> OpenPageAsync()
+    private static async Task<TimedPage> OpenPageAsync()
     {
         FakeTimeProvider time = new();
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { PollInterval = PollInterval, TimeProvider = time }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page, time);
+        return new TimedPage(driver, session, page, time);
     }
 
     // Answers readiness and state queries with the next result in turn (repeating the last), and every other
@@ -278,7 +278,7 @@ public class PointerActionTests
         });
     }
 
-    private static JsonObject Readiness(string status, params (string Name, JsonNode Value)[] extra)
+    private static JsonObject Readiness(string status, params JsonField[] extra)
     {
         JsonArray entries = [new JsonArray("status", new JsonObject() { ["type"] = "string", ["value"] = status })];
         foreach ((string name, JsonNode value) in extra)
@@ -289,9 +289,9 @@ public class PointerActionTests
         return new JsonObject() { ["type"] = "object", ["value"] = entries };
     }
 
-    private static (string Method, JsonObject Parameters) NavigationStarted(string contextId)
+    private static FakeEvent NavigationStarted(string contextId)
     {
-        return ("browsingContext.navigationStarted", new JsonObject()
+        return new FakeEvent("browsingContext.navigationStarted", new JsonObject()
         {
             ["context"] = contextId,
             ["navigation"] = "navigation-1",
@@ -307,19 +307,19 @@ public class PointerActionTests
             ["type"] = "object",
             ["value"] = new JsonArray(new JsonArray("x", new JsonObject() { ["type"] = "number", ["value"] = x }), new JsonArray("y", new JsonObject() { ["type"] = "number", ["value"] = y })),
         };
-        return Readiness("ready", ("interactionOffset", offset));
+        return Readiness("ready", new JsonField("interactionOffset", offset));
     }
 
     private static JsonObject NotReady(string reason)
     {
-        return Readiness("notready", ("reason", new JsonObject() { ["type"] = "string", ["value"] = reason }));
+        return Readiness("notready", new JsonField("reason", new JsonObject() { ["type"] = "string", ["value"] = reason }));
     }
 
     private static JsonObject States(string status, string? detailName, string? detail)
     {
         return detailName is null || detail is null
             ? Readiness(status)
-            : Readiness(status, (detailName, new JsonObject() { ["type"] = "string", ["value"] = detail }));
+            : Readiness(status, new JsonField(detailName, new JsonObject() { ["type"] = "string", ["value"] = detail }));
     }
 
     private static IReadOnlyList<JsonObject> ScriptCalls(FakeSession session, string functionFragment)

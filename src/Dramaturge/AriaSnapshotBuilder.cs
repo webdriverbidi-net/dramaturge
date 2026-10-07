@@ -36,7 +36,7 @@ internal static class AriaSnapshotBuilder
         return new AriaSnapshot(tree, text, targets);
     }
 
-    private static async Task<(AriaNode Tree, string Text)> TakeFrameAsync(Frame frame, NodeRemoteValue? root, AriaSnapshotOptions options, Dictionary<string, AriaSnapshotTarget> targets, TimeBudget budget)
+    private static async Task<FrameSnapshot> TakeFrameAsync(Frame frame, NodeRemoteValue? root, AriaSnapshotOptions options, Dictionary<string, AriaSnapshotTarget> targets, TimeBudget budget)
     {
         BrowserGroup group = frame.Page.Browser.Group;
         LocalValue rootArgument = root is null ? LocalValue.Null : root.ToSharedReference();
@@ -58,7 +58,7 @@ internal static class AriaSnapshotBuilder
 
         if (!options.IncludeFrames)
         {
-            return (tree, text);
+            return new FrameSnapshot(tree, text);
         }
 
         // A frame with no document stays an empty iframe node.
@@ -79,7 +79,7 @@ internal static class AriaSnapshotBuilder
             frameTexts.Add(childText);
         }
 
-        return (tree, InsertFrameTexts(text, frameTexts));
+        return new FrameSnapshot(tree, InsertFrameTexts(text, frameTexts));
     }
 
     // The group tracks a frame once the browser reports it, which can be after the page can see it.
@@ -140,4 +140,6 @@ internal static class AriaSnapshotBuilder
     {
         return value.As<KeyValuePairCollectionRemoteValue>().Value!.First(property => property.Key is string key && key == name).Value;
     }
+
+    private sealed record FrameSnapshot(AriaNode Tree, string Text);
 }

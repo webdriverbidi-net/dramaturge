@@ -33,7 +33,7 @@ public sealed class HarReplayIntegrationTests : IDisposable
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
         string har = this.WriteHar(
             Entry("GET", server.UrlFor("replayed.html"), 200, "text/html", "<!DOCTYPE html><title>Replayed page</title>"),
-            Entry("GET", server.UrlFor("old-data"), 302, "text/plain", string.Empty, responseHeaders: [("Location", server.UrlFor("new-data"))]),
+            Entry("GET", server.UrlFor("old-data"), 302, "text/plain", string.Empty, responseHeaders: [new HeaderEntry("Location", server.UrlFor("new-data"))]),
             Entry("GET", server.UrlFor("new-data"), 200, "text/plain", "replayed data"));
         await page.RouteFromHarAsync(har, cancellationToken: TestContext.Current.CancellationToken);
 
@@ -56,7 +56,7 @@ public sealed class HarReplayIntegrationTests : IDisposable
         string har = this.WriteHar(
             Entry("POST", server.UrlFor("submit"), 200, "text/plain", "Grace's answer", requestBody: "name=Grace"),
             Entry("POST", server.UrlFor("submit"), 200, "text/plain", "Ada's answer", requestBody: "name=Ada"),
-            Entry("POST", server.UrlFor("upload"), 200, "text/plain", "form answer", requestBody: RecordedForm, requestHeaders: [("Content-Type", "multipart/form-data; boundary=recorded-boundary")]));
+            Entry("POST", server.UrlFor("upload"), 200, "text/plain", "form answer", requestBody: RecordedForm, requestHeaders: [new HeaderEntry("Content-Type", "multipart/form-data; boundary=recorded-boundary")]));
         await page.RouteFromHarAsync(har, cancellationToken: TestContext.Current.CancellationToken);
 
         string[] answers = await page.EvaluateAsync<string[]>(
@@ -108,7 +108,7 @@ public sealed class HarReplayIntegrationTests : IDisposable
         binary["response"]!["content"]!["encoding"] = "base64";
         string har = this.WriteHar(
             binary,
-            Entry("GET", server.UrlFor("cookies"), 200, "text/plain", "cookies set", responseHeaders: [("Set-Cookie", "first=1; Path=/"), ("Set-Cookie", "second=2; Path=/")]));
+            Entry("GET", server.UrlFor("cookies"), 200, "text/plain", "cookies set", responseHeaders: [new HeaderEntry("Set-Cookie", "first=1; Path=/"), new HeaderEntry("Set-Cookie", "second=2; Path=/")]));
         await page.Browser.RouteFromHarAsync(har, cancellationToken: TestContext.Current.CancellationToken);
 
         int[] bytes = await page.EvaluateAsync<int[]>("async () => [...new Uint8Array(await (await fetch('binary')).arrayBuffer())]", cancellationToken: TestContext.Current.CancellationToken);
@@ -126,9 +126,9 @@ public sealed class HarReplayIntegrationTests : IDisposable
         return page;
     }
 
-    private static JsonObject Entry(string method, string url, int status, string mimeType, string body, (string Name, string Value)[]? requestHeaders = null, (string Name, string Value)[]? responseHeaders = null, string? requestBody = null)
+    private static JsonObject Entry(string method, string url, int status, string mimeType, string body, HeaderEntry[]? requestHeaders = null, HeaderEntry[]? responseHeaders = null, string? requestBody = null)
     {
-        static JsonArray Headers((string Name, string Value)[] headers) => new([.. headers.Select(header => (JsonNode)new JsonObject() { ["name"] = header.Name, ["value"] = header.Value })]);
+        static JsonArray Headers(HeaderEntry[] headers) => new([.. headers.Select(header => (JsonNode)new JsonObject() { ["name"] = header.Name, ["value"] = header.Value })]);
         JsonObject request = new() { ["method"] = method, ["url"] = url, ["headers"] = Headers(requestHeaders ?? []) };
         if (requestBody is not null)
         {
@@ -142,7 +142,7 @@ public sealed class HarReplayIntegrationTests : IDisposable
             {
                 ["status"] = status,
                 ["statusText"] = string.Empty,
-                ["headers"] = Headers([("Content-Type", mimeType), .. responseHeaders ?? []]),
+                ["headers"] = Headers([new HeaderEntry("Content-Type", mimeType), .. responseHeaders ?? []]),
                 ["content"] = new JsonObject() { ["mimeType"] = mimeType, ["text"] = body },
                 ["redirectURL"] = string.Empty,
             },
@@ -155,4 +155,6 @@ public sealed class HarReplayIntegrationTests : IDisposable
         File.WriteAllText(path, new JsonObject() { ["log"] = new JsonObject() { ["version"] = "1.2", ["entries"] = new JsonArray([.. entries]) } }.ToJsonString());
         return path;
     }
+
+    private sealed record HeaderEntry(string Name, string Value);
 }

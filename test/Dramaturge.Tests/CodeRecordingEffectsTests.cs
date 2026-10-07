@@ -159,8 +159,8 @@ public class CodeRecordingEffectsTests
         await WaitUntilAsync(() => page.Frames.Count == 4);
         AnswerFrames(session, new()
         {
-            [page.Id] = [(outer.Id, "#outer"), ("unrelated-context", "#unrelated")],
-            [outer.Id] = [(inner.Id, "#inner")],
+            [page.Id] = [new FrameElement(outer.Id, "#outer"), new FrameElement("unrelated-context", "#unrelated")],
+            [outer.Id] = [new FrameElement(inner.Id, "#inner")],
         });
         List<string> messages = [];
         page.Browser.Group.OnLogMessage.AddObserver(e => messages.Add(e.Message));
@@ -203,18 +203,18 @@ public class CodeRecordingEffectsTests
         Assert.Empty(Statements(code));
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page)> OpenPageAsync()
+    private static async Task<OpenedPage> OpenPageAsync()
     {
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { NavigationTimeout = TimeSpan.FromSeconds(5) }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
         AnswerFrames(session, []);
-        return (driver, session, page);
+        return new OpenedPage(driver, session, page);
     }
 
     // Answers the recorder's installs, and each document's description of its frame elements: each frame's context
     // and CSS path; #outer also has a title, which no lookup finds, as when the frame has gone, and #inner a nameable ancestor.
-    private static void AnswerFrames(FakeSession session, Dictionary<string, (string ContextId, string CssPath)[]> frameElements)
+    private static void AnswerFrames(FakeSession session, Dictionary<string, FrameElement[]> frameElements)
     {
         session.RemoteEnd.AnswerWith("script.callFunction", parameters =>
         {
@@ -282,7 +282,7 @@ public class CodeRecordingEffectsTests
         return new JsonObject() { ["context"] = contextId, ["type"] = type, ["handler"] = "ignore", ["message"] = message, ["userContext"] = "default" };
     }
 
-    private static JsonObject Action(string kind, string cssPath, params (string Name, JsonNode Value)[] details)
+    private static JsonObject Action(string kind, string cssPath, params JsonField[] details)
     {
         JsonObject action = new()
         {
@@ -298,9 +298,9 @@ public class CodeRecordingEffectsTests
         return action;
     }
 
-    private static JsonObject Click(string cssPath) => Action("click", cssPath, ("button", "left"), ("clickCount", 1), ("modifiers", new JsonArray()));
+    private static JsonObject Click(string cssPath) => Action("click", cssPath, new JsonField("button", "left"), new JsonField("clickCount", 1), new JsonField("modifiers", new JsonArray()));
 
-    private static JsonObject Fill(string cssPath, string value) => Action("fill", cssPath, ("value", value));
+    private static JsonObject Fill(string cssPath, string value) => Action("fill", cssPath, new JsonField("value", value));
 
     private static string[] Statements(string programCode)
     {
@@ -317,4 +317,6 @@ public class CodeRecordingEffectsTests
 
         Assert.True(condition());
     }
+
+    private sealed record FrameElement(string ContextId, string CssPath);
 }

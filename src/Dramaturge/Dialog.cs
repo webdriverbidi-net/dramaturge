@@ -86,7 +86,7 @@ public sealed class Dialog
         return this.TraceAsync(Call("Dismiss dialog", null, "dismiss"), cancellationToken, budget => this.HandleAsync(false, null, budget.CancellationToken));
     }
 
-    private static TracedCall Call(string title, string? subtitle, string method, params (string Name, object Value)[] parameters)
+    private static TracedCall Call(string title, string? subtitle, string method, params TraceParameter[] parameters)
     {
         return TraceRecording.Call("Dialog", title, subtitle, method, parameters);
     }

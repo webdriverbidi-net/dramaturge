@@ -370,17 +370,17 @@ internal sealed class TraceWriter
 
     // A JPEG image's size is in its start-of-frame segment, baseline (0xC0) or progressive (0xC2); the segments
     // before it are skipped by their lengths.
-    private static (int Width, int Height) JpegSize(byte[] jpeg)
+    private static ImageSize JpegSize(byte[] jpeg)
     {
         for (int index = 2; index + 9 < jpeg.Length; index += 2 + ((jpeg[index + 2] << 8) | jpeg[index + 3]))
         {
             if (jpeg[index + 1] == 0xC0 || jpeg[index + 1] == 0xC2)
             {
-                return ((jpeg[index + 7] << 8) | jpeg[index + 8], (jpeg[index + 5] << 8) | jpeg[index + 6]);
+                return new ImageSize((jpeg[index + 7] << 8) | jpeg[index + 8], (jpeg[index + 5] << 8) | jpeg[index + 6]);
             }
         }
 
-        return (0, 0);
+        return new ImageSize(0, 0);
     }
 
     private static string Sha1(byte[] content)
@@ -461,4 +461,6 @@ internal sealed class TraceWriter
             this.events.Add(line.ToArray());
         }
     }
+
+    private readonly record struct ImageSize(int Width, int Height);
 }

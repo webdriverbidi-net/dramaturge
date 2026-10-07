@@ -291,10 +291,10 @@ public sealed class ElementLocator
     /// <exception cref="WebDriverBiDiTimeoutException">Thrown when the element does not reach the state in time.</exception>
     public Task WaitForAsync(ElementState state = ElementState.Visible, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(this.Call("Wait for {state}", "waitFor", ("state", state.ToString())), this.CreateBudget(timeout, cancellationToken), budget => this.PollAsync(budget, $"{this} to be {state.ToString().ToLowerInvariant()}", async () =>
+        return this.TraceAsync(this.Call("Wait for {state}", "waitFor", new TraceParameter("state", state.ToString())), this.CreateBudget(timeout, cancellationToken), budget => this.PollAsync<bool>(budget, $"{this} to be {state.ToString().ToLowerInvariant()}", async () =>
         {
             (bool reached, string observed) = await this.CheckStateAsync(state, budget).ConfigureAwait(false);
-            return (reached, reached, observed);
+            return new(reached, reached, observed);
         }));
     }
 
@@ -333,7 +333,7 @@ public sealed class ElementLocator
     public Task<AriaSnapshot> AriaSnapshotAsync(AriaSnapshotOptions? options = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         AriaSnapshotOptions snapshotOptions = options ?? new AriaSnapshotOptions();
-        return this.TraceAsync(this.Call("Aria snapshot", "ariaSnapshot"), this.CreateBudget(timeout, cancellationToken), async budget => (await this.PollElementAsync(budget, async node => (true, await AriaSnapshotBuilder.TakeAsync(this.Frame, node, snapshotOptions, budget).ConfigureAwait(false), string.Empty)).ConfigureAwait(false))!);
+        return this.TraceAsync(this.Call("Aria snapshot", "ariaSnapshot"), this.CreateBudget(timeout, cancellationToken), async budget => (await this.PollElementAsync<AriaSnapshot>(budget, async node => new(true, await AriaSnapshotBuilder.TakeAsync(this.Frame, node, snapshotOptions, budget).ConfigureAwait(false), string.Empty)).ConfigureAwait(false))!);
     }
 
     /// <summary>
@@ -409,7 +409,7 @@ public sealed class ElementLocator
     {
         this.RequireSameFrame(target, nameof(target));
         options ??= new DragOptions();
-        return this.TraceAsync(this.Call("Drag to {target}", "dragTo", ("target", target.ToString())), this.CreateBudget(options.Timeout, cancellationToken), async budget =>
+        return this.TraceAsync(this.Call("Drag to {target}", "dragTo", new TraceParameter("target", target.ToString())), this.CreateBudget(options.Timeout, cancellationToken), async budget =>
         {
             ActionTarget? from = await this.PollAsync(budget, $"{this} to be ready to be dragged", () => this.FindActionTargetAsync("drag", options, budget)).ConfigureAwait(false);
             PointerActionOptions targetOptions = new() { Offset = options.TargetOffset, Force = options.Force };
@@ -441,7 +441,7 @@ public sealed class ElementLocator
     /// <exception cref="WebDriverBiDiTimeoutException">Thrown when no element matches in time.</exception>
     public Task<bool> DispatchEventAsync(string type, IReadOnlyDictionary<string, LocalValue>? eventInit = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(this.Call("Dispatch \"{type}\"", "dispatchEvent", ("type", type)), this.CreateBudget(timeout, cancellationToken), async budget =>
+        return this.TraceAsync(this.Call("Dispatch \"{type}\"", "dispatchEvent", new TraceParameter("type", type)), this.CreateBudget(timeout, cancellationToken), async budget =>
         {
             NodeRemoteValue? node = await this.PollAsync(budget, $"{this} to be attached", () => this.TryFindOneAsync(budget)).ConfigureAwait(false);
             await this.RecordTargetAsync(node!, budget).ConfigureAwait(false);
@@ -502,7 +502,7 @@ public sealed class ElementLocator
     public Task PressAsync(string key, KeyActionOptions? options = null, CancellationToken cancellationToken = default)
     {
         options ??= new KeyActionOptions();
-        return this.TraceAsync(this.Call("Press \"{key}\"", "press", ("key", key)), this.CreateBudget(options.Timeout, cancellationToken), async budget =>
+        return this.TraceAsync(this.Call("Press \"{key}\"", "press", new TraceParameter("key", key)), this.CreateBudget(options.Timeout, cancellationToken), async budget =>
         {
             await this.PollAsync(budget, $"{this} to be focused", () => this.TryCallOnElementAsync(FocusFunction, budget)).ConfigureAwait(false);
             await this.PerformKeyActionsAsync(new InputBuilder().AddKeyChordAction([.. ModifierKeyValues.For(options.Modifiers), key]), budget).ConfigureAwait(false);
@@ -522,7 +522,7 @@ public sealed class ElementLocator
     public Task PressSequentiallyAsync(string text, PressSequentiallyOptions? options = null, CancellationToken cancellationToken = default)
     {
         options ??= new PressSequentiallyOptions();
-        return this.TraceAsync(this.Call("Type \"{text}\"", "pressSequentially", ("text", text)), this.CreateBudget(options.Timeout, cancellationToken), async budget =>
+        return this.TraceAsync(this.Call("Type \"{text}\"", "pressSequentially", new TraceParameter("text", text)), this.CreateBudget(options.Timeout, cancellationToken), async budget =>
         {
             await this.PollAsync(budget, $"{this} to be focused", () => this.TryCallOnElementAsync(FocusFunction, budget)).ConfigureAwait(false);
             await this.PerformKeyActionsAsync(new InputBuilder().AddSendKeysToActiveElementAction(text, options.Delay), budget).ConfigureAwait(false);
@@ -543,7 +543,7 @@ public sealed class ElementLocator
     public Task FillAsync(string value, ActionOptions? options = null, CancellationToken cancellationToken = default)
     {
         options ??= new ActionOptions();
-        return this.TraceAsync(this.Call("Fill \"{value}\"", "fill", ("value", value)), this.CreateBudget(options.Timeout, cancellationToken), budget => this.ReplaceTextAsync(value, "type", "filled", options.Force, budget));
+        return this.TraceAsync(this.Call("Fill \"{value}\"", "fill", new TraceParameter("value", value)), this.CreateBudget(options.Timeout, cancellationToken), budget => this.ReplaceTextAsync(value, "type", "filled", options.Force, budget));
     }
 
     /// <summary>
@@ -608,7 +608,7 @@ public sealed class ElementLocator
     public Task SetCheckedAsync(bool isChecked, PointerActionOptions? options = null, CancellationToken cancellationToken = default)
     {
         options ??= new PointerActionOptions();
-        return this.TraceAsync(this.Call("Set checked {checked}", "setChecked", ("checked", isChecked ? "true" : "false")), this.CreateBudget(options.Timeout, cancellationToken), budget => this.SetCheckedCoreAsync(isChecked, options, budget));
+        return this.TraceAsync(this.Call("Set checked {checked}", "setChecked", new TraceParameter("checked", isChecked ? "true" : "false")), this.CreateBudget(options.Timeout, cancellationToken), budget => this.SetCheckedCoreAsync(isChecked, options, budget));
     }
 
     /// <summary>
@@ -627,7 +627,7 @@ public sealed class ElementLocator
     {
         options ??= new ActionOptions();
         List<SelectOption> chosen = [.. selections];
-        return this.TraceAsync(this.Call("Select option", "selectOption", ("options", chosen.Select(option => option.ToString()).ToList())), this.CreateBudget(options.Timeout, cancellationToken), async budget => (await this.PollAsync(budget, $"{this} to be ready to have options selected", () => this.TrySelectOptionsAsync(chosen, options.Force, budget)).ConfigureAwait(false))!);
+        return this.TraceAsync(this.Call("Select option", "selectOption", new TraceParameter("options", chosen.Select(option => option.ToString()).ToList())), this.CreateBudget(options.Timeout, cancellationToken), async budget => (await this.PollAsync(budget, $"{this} to be ready to have options selected", () => this.TrySelectOptionsAsync(chosen, options.Force, budget)).ConfigureAwait(false))!);
     }
 
     /// <summary>
@@ -643,7 +643,7 @@ public sealed class ElementLocator
     public Task SetInputFilesAsync(IEnumerable<string> files, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         List<string> fileList = [.. files];
-        return this.TraceAsync(this.Call("Set input files", "setInputFiles", ("files", fileList)), this.CreateBudget(timeout, cancellationToken), async budget =>
+        return this.TraceAsync(this.Call("Set input files", "setInputFiles", new TraceParameter("files", fileList)), this.CreateBudget(timeout, cancellationToken), async budget =>
         {
             NodeRemoteValue? node = await this.PollAsync(budget, $"{this} to be attached", () => this.TryFindOneAsync(budget)).ConfigureAwait(false);
             await this.RecordTargetAsync(node!, budget).ConfigureAwait(false);
@@ -730,7 +730,7 @@ public sealed class ElementLocator
     /// <exception cref="WebDriverBiDiTimeoutException">Thrown when no element matches in time.</exception>
     public Task<string> TextContentAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(this.Call("Text content", "textContent"), this.CreateBudget(timeout, cancellationToken), async budget => (await this.PollElementAsync(budget, async node => (true, await this.ReadTextAsync(node, false, budget).ConfigureAwait(false), string.Empty)).ConfigureAwait(false))!);
+        return this.TraceAsync(this.Call("Text content", "textContent"), this.CreateBudget(timeout, cancellationToken), async budget => (await this.PollElementAsync<string>(budget, async node => new(true, await this.ReadTextAsync(node, false, budget).ConfigureAwait(false), string.Empty)).ConfigureAwait(false))!);
     }
 
     /// <summary>
@@ -744,7 +744,7 @@ public sealed class ElementLocator
     /// <exception cref="WebDriverBiDiTimeoutException">Thrown when no element matches in time.</exception>
     public Task<string> InnerTextAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(this.Call("Inner text", "innerText"), this.CreateBudget(timeout, cancellationToken), async budget => (await this.PollElementAsync(budget, async node => (true, await this.ReadTextAsync(node, true, budget).ConfigureAwait(false) ?? throw new InvalidOperationException($"{this} is not an HTML element."), string.Empty)).ConfigureAwait(false))!);
+        return this.TraceAsync(this.Call("Inner text", "innerText"), this.CreateBudget(timeout, cancellationToken), async budget => (await this.PollElementAsync<string>(budget, async node => new(true, await this.ReadTextAsync(node, true, budget).ConfigureAwait(false) ?? throw new InvalidOperationException($"{this} is not an HTML element."), string.Empty)).ConfigureAwait(false))!);
     }
 
     /// <summary>
@@ -757,7 +757,7 @@ public sealed class ElementLocator
     /// <exception cref="WebDriverBiDiTimeoutException">Thrown when no element matches in time.</exception>
     public Task<string> InnerHtmlAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(this.Call("Inner HTML", "innerHTML"), this.CreateBudget(timeout, cancellationToken), async budget => (await this.PollElementAsync(budget, async node => (true, await this.ReadStringAsync(node, "(element) => element.innerHTML", [], budget).ConfigureAwait(false), string.Empty)).ConfigureAwait(false))!);
+        return this.TraceAsync(this.Call("Inner HTML", "innerHTML"), this.CreateBudget(timeout, cancellationToken), async budget => (await this.PollElementAsync<string>(budget, async node => new(true, await this.ReadStringAsync(node, "(element) => element.innerHTML", [], budget).ConfigureAwait(false), string.Empty)).ConfigureAwait(false))!);
     }
 
     /// <summary>
@@ -771,7 +771,7 @@ public sealed class ElementLocator
     /// <exception cref="WebDriverBiDiTimeoutException">Thrown when no element matches in time.</exception>
     public Task<string> InputValueAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(this.Call("Input value", "inputValue"), this.CreateBudget(timeout, cancellationToken), async budget => (await this.PollElementAsync(budget, async node => (true, await this.ReadValueAsync(node, budget).ConfigureAwait(false), string.Empty)).ConfigureAwait(false))!);
+        return this.TraceAsync(this.Call("Input value", "inputValue"), this.CreateBudget(timeout, cancellationToken), async budget => (await this.PollElementAsync<string>(budget, async node => new(true, await this.ReadValueAsync(node, budget).ConfigureAwait(false), string.Empty)).ConfigureAwait(false))!);
     }
 
     /// <summary>
@@ -785,7 +785,7 @@ public sealed class ElementLocator
     /// <exception cref="WebDriverBiDiTimeoutException">Thrown when no element matches in time.</exception>
     public Task<string?> GetAttributeAsync(string name, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(this.Call("Get attribute \"{name}\"", "getAttribute", ("name", name)), this.CreateBudget(timeout, cancellationToken), budget => this.PollElementAsync(budget, async node => (true, await this.ReadAttributeAsync(node, name, budget).ConfigureAwait(false), string.Empty)));
+        return this.TraceAsync(this.Call("Get attribute \"{name}\"", "getAttribute", new TraceParameter("name", name)), this.CreateBudget(timeout, cancellationToken), budget => this.PollElementAsync<string>(budget, async node => new(true, await this.ReadAttributeAsync(node, name, budget).ConfigureAwait(false), string.Empty)));
     }
 
     /// <summary>
@@ -799,10 +799,10 @@ public sealed class ElementLocator
     /// <exception cref="WebDriverBiDiTimeoutException">Thrown when no element matches in time.</exception>
     public Task<BoundingBox?> BoundingBoxAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(this.Call("Bounding box", "boundingBox"), this.CreateBudget(timeout, cancellationToken), budget => this.PollElementAsync(budget, async node =>
+        return this.TraceAsync(this.Call("Bounding box", "boundingBox"), this.CreateBudget(timeout, cancellationToken), budget => this.PollElementAsync<BoundingBox>(budget, async node =>
         {
             RemoteValue box = await this.Group.ScriptHost.CallAsync(this.Frame.Id, "(inspector, element) => { if (!inspector.isElementVisible(element)) { return null; } const { x, y, width, height } = element.getBoundingClientRect(); return { x, y, width, height }; }", [node.ToSharedReference()], budget).ConfigureAwait(false);
-            return (true, box is NullRemoteValue ? null : new BoundingBox(this.Frame, Number(box, "x"), Number(box, "y"), Number(box, "width"), Number(box, "height")), string.Empty);
+            return new(true, box is NullRemoteValue ? null : new BoundingBox(this.Frame, Number(box, "x"), Number(box, "y"), Number(box, "width"), Number(box, "height")), string.Empty);
         }));
     }
 
@@ -817,17 +817,17 @@ public sealed class ElementLocator
     /// <exception cref="WebDriverBiDiTimeoutException">Thrown when the element is not ready in time.</exception>
     public Task<byte[]> ScreenshotAsync(ImageFormat? format = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(this.Call("Screenshot", "screenshot"), this.CreateBudget(timeout, cancellationToken), async budget => (await this.PollElementAsync(budget, async node =>
+        return this.TraceAsync(this.Call("Screenshot", "screenshot"), this.CreateBudget(timeout, cancellationToken), async budget => (await this.PollElementAsync<byte[]>(budget, async node =>
         {
             string? notReady = await this.CheckStatesAsync(node, "['stable', 'visible']", budget).ConfigureAwait(false);
             if (notReady is not null)
             {
-                return (false, null, notReady);
+                return new(false, null, notReady);
             }
 
             CaptureScreenshotCommandParameters parameters = new(this.Frame.Id) { Clip = new ElementClipRectangle(node.ToSharedReference()), Format = format, Origin = ScreenshotOrigin.Document };
             CaptureScreenshotCommandResult result = await this.Group.Driver.BrowsingContext.CaptureScreenshotAsync(parameters, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
-            return (true, Convert.FromBase64String(result.Data), string.Empty);
+            return new(true, Convert.FromBase64String(result.Data), string.Empty);
         }).ConfigureAwait(false))!);
     }
 
@@ -846,7 +846,7 @@ public sealed class ElementLocator
     public Task<RemoteValue> EvaluateAsync(string function, IEnumerable<LocalValue>? arguments = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         List<LocalValue> argumentList = [.. arguments ?? []];
-        return this.TraceAsync(this.Call("Evaluate", "evaluate", ("function", function)), this.CreateBudget(timeout, cancellationToken), budget => this.EvaluateCoreAsync(function, argumentList, budget));
+        return this.TraceAsync(this.Call("Evaluate", "evaluate", new TraceParameter("function", function)), this.CreateBudget(timeout, cancellationToken), budget => this.EvaluateCoreAsync(function, argumentList, budget));
     }
 
     /// <summary>
@@ -863,7 +863,7 @@ public sealed class ElementLocator
     public async Task<T> EvaluateAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>(string function, IEnumerable<LocalValue>? arguments = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         List<LocalValue> argumentList = [.. arguments ?? []];
-        return await this.TraceAsync(this.Call("Evaluate", "evaluate", ("function", function)), this.CreateBudget(timeout, cancellationToken), async budget => RemoteValueConverter.Convert<T>(await this.EvaluateCoreAsync(function, argumentList, budget).ConfigureAwait(false))).ConfigureAwait(false);
+        return await this.TraceAsync(this.Call("Evaluate", "evaluate", new TraceParameter("function", function)), this.CreateBudget(timeout, cancellationToken), async budget => RemoteValueConverter.Convert<T>(await this.EvaluateCoreAsync(function, argumentList, budget).ConfigureAwait(false))).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -926,7 +926,7 @@ public sealed class ElementLocator
     internal Task ExpectAsync(string expected, bool isNot, TimeSpan? timeout, CancellationToken cancellationToken, Func<TimeBudget, Task<Observation?>> observe, Func<string, string>? describeDetails = null)
     {
         TimeBudget budget = new(timeout ?? this.Group.Options.ExpectTimeout, this.Group.Options.TimeProvider, cancellationToken);
-        TracedCall call = TraceRecording.Call("Expect", $"Expect {expected}", "{locator}", "expect", ("locator", this.ToString()));
+        TracedCall call = TraceRecording.Call("Expect", $"Expect {expected}", "{locator}", "expect", new TraceParameter("locator", this.ToString()));
         return this.TraceAsync(call, budget, actionBudget => this.ExpectCoreAsync(expected, isNot, observe, describeDetails, actionBudget));
     }
 
@@ -949,10 +949,10 @@ public sealed class ElementLocator
     /// <param name="template">The template, which must be valid.</param>
     /// <param name="budget">The time the call may take.</param>
     /// <returns>Whether the snapshot matches, and the snapshot as text without refs.</returns>
-    internal async Task<(bool Matches, string Actual)> MatchAriaSnapshotAsync(NodeRemoteValue node, string template, TimeBudget budget)
+    internal async Task<AriaMatch> MatchAriaSnapshotAsync(NodeRemoteValue node, string template, TimeBudget budget)
     {
         RemoteValue result = await this.Group.ScriptHost.CallSnapshotAsync(this.Frame.Id, "(snapshots, root, template) => snapshots.match(root, template)", [node.ToSharedReference(), LocalValue.String(template)], budget).ConfigureAwait(false);
-        return (Property(result, "matches").As<BooleanRemoteValue>().Value, Property(result, "actual").As<StringRemoteValue>().Value);
+        return new(Property(result, "matches").As<BooleanRemoteValue>().Value, Property(result, "actual").As<StringRemoteValue>().Value);
     }
 
     /// <summary>
@@ -1161,9 +1161,9 @@ public sealed class ElementLocator
         return kept;
     }
 
-    private TracedCall Call(string title, string method, params (string Name, object Value)[] parameters)
+    private TracedCall Call(string title, string method, params TraceParameter[] parameters)
     {
-        return TraceRecording.Call("Locator", title, "{locator}", method, [("locator", this.ToString()), .. parameters]);
+        return TraceRecording.Call("Locator", title, "{locator}", method, [new TraceParameter("locator", this.ToString()), .. parameters]);
     }
 
     private Task<T> TraceAsync<T>(TracedCall call, TimeBudget budget, Func<TimeBudget, Task<T>> action)
@@ -1184,17 +1184,17 @@ public sealed class ElementLocator
     private async Task ExpectCoreAsync(string expected, bool isNot, Func<TimeBudget, Task<Observation?>> observe, Func<string, string>? describeDetails, TimeBudget budget)
     {
         string? actual = null;
-        (bool met, bool _, string? observed) = await this.TryPollAsync(budget, async () =>
+        (bool met, bool _, string? observed) = await this.TryPollAsync<bool>(budget, async () =>
         {
             Observation? observation = await observe(budget).ConfigureAwait(false);
             if (observation is null)
             {
-                return (false, false, DescribeNotReady("notconnected"));
+                return new(false, false, DescribeNotReady("notconnected"));
             }
 
             actual = observation.Actual;
             bool holds = observation.Holds != isNot;
-            return (holds, holds, actual is null ? "no element matched" : observation.Summary ?? $"received {actual}");
+            return new(holds, holds, actual is null ? "no element matched" : observation.Summary ?? $"received {actual}");
         }).ConfigureAwait(false);
         if (!met)
         {
@@ -1245,10 +1245,10 @@ public sealed class ElementLocator
 
     private async Task<RemoteValue> EvaluateCoreAsync(string function, List<LocalValue> argumentList, TimeBudget budget)
     {
-        RemoteValue? result = await this.PollElementAsync(budget, async node =>
+        RemoteValue? result = await this.PollElementAsync<RemoteValue>(budget, async node =>
         {
             RemoteValue value = await this.Group.Driver.Script.CallFunctionAsync(this.Frame.Id, function, [node.ToSharedReference(), .. argumentList], null, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
-            return (true, value, string.Empty);
+            return new(true, value, string.Empty);
         }).ConfigureAwait(false);
         return result!;
     }
@@ -1462,14 +1462,14 @@ public sealed class ElementLocator
     // removed while it is checked is looked up again, and so is one whose document was being replaced: a command
     // failing while a navigation starts in the frame is retried whatever the error, as browsers do not all report
     // that case with the protocol's own errors.
-    private async Task<T> PollAsync<T>(TimeBudget budget, string awaited, Func<Task<(bool Done, T Result, string Observed)>> attempt)
+    private async Task<T> PollAsync<T>(TimeBudget budget, string awaited, Func<Task<PollAttempt<T>>> attempt)
     {
         budget.Trace?.Log($"waiting for {awaited}");
         (bool done, T result, string? observed) = await this.TryPollAsync(budget, attempt).ConfigureAwait(false);
         return done ? result : throw new WebDriverBiDiTimeoutException($"Timed out after {budget.Duration.TotalSeconds} seconds waiting for {awaited}; {observed}.");
     }
 
-    private async Task<(bool Done, T Result, string? Observed)> TryPollAsync<T>(TimeBudget budget, Func<Task<(bool Done, T Result, string Observed)>> attempt)
+    private async Task<PollAttempt<T>> TryPollAsync<T>(TimeBudget budget, Func<Task<PollAttempt<T>>> attempt)
     {
         string? observed = null;
         while (true)
@@ -1480,7 +1480,7 @@ public sealed class ElementLocator
                 (bool done, T result, string seen) = await attempt().ConfigureAwait(false);
                 if (done)
                 {
-                    return (true, result, null);
+                    return new(true, result, string.Empty);
                 }
 
                 observed = seen;
@@ -1510,26 +1510,26 @@ public sealed class ElementLocator
             }
         }
 
-        return (false, default!, observed);
+        return new(false, default!, observed!);
     }
 
     // The browser serializes an element's content window as its browsing context ID, which names the frame.
-    private async Task<(bool Found, Frame? Frame, string Observed)> FindContentFrameAsync(TimeBudget budget)
+    private async Task<PollAttempt<Frame?>> FindContentFrameAsync(TimeBudget budget)
     {
         IList<NodeRemoteValue> nodes = await this.ResolveAsync(StrictMatchLimit, budget).ConfigureAwait(false);
         this.ThrowIfAmbiguous(nodes);
         if (nodes.Count == 0)
         {
-            return (false, null, "no element matched");
+            return new(false, null, "no element matched");
         }
 
         RemoteValue window = await this.Group.Driver.Script.CallFunctionAsync(this.Frame.Id, "(element) => element.contentWindow", [nodes[0].ToSharedReference()], this.Group.Options.SandboxName, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
         return window switch
         {
             WindowProxyRemoteValue contentWindow => this.Group.FindFrame(contentWindow.Value.BrowsingContextId) is Frame frame
-                ? (true, frame, string.Empty)
-                : (false, null, "the frame was not tracked yet"),
-            NullRemoteValue => (false, null, "the frame had no document"),
+                ? new(true, frame, string.Empty)
+                : new(false, null, "the frame was not tracked yet"),
+            NullRemoteValue => new(false, null, "the frame had no document"),
             _ => throw new InvalidOperationException($"{this} is not a frame element."),
         };
     }
@@ -1570,13 +1570,13 @@ public sealed class ElementLocator
         return this.Group.Driver.Input.PerformActionsAsync(this.Frame.Id, builder, budget.Remaining, budget.CancellationToken);
     }
 
-    private async Task<(bool Found, ActionTarget? Target, string Observed)> FindActionTargetAsync(string interactionType, PointerActionOptions options, TimeBudget budget)
+    private async Task<PollAttempt<ActionTarget?>> FindActionTargetAsync(string interactionType, PointerActionOptions options, TimeBudget budget)
     {
         IList<NodeRemoteValue> nodes = await this.ResolveAsync(StrictMatchLimit, budget).ConfigureAwait(false);
         this.ThrowIfAmbiguous(nodes);
         if (nodes.Count == 0)
         {
-            return (false, null, "no element matched");
+            return new(false, null, "no element matched");
         }
 
         NodeRemoteValue node = nodes[0];
@@ -1584,7 +1584,7 @@ public sealed class ElementLocator
         if (options.Force)
         {
             await this.ScrollIntoViewAsync(node, onlyIfOutOfView: true, budget).ConfigureAwait(false);
-            return (true, new ActionTarget(node, requested), string.Empty);
+            return new(true, new ActionTarget(node, requested), string.Empty);
         }
 
         LocalValue offset = LocalValue.Object(new Dictionary<string, LocalValue>() { ["x"] = LocalValue.Number(requested.X), ["y"] = LocalValue.Number(requested.Y) });
@@ -1593,28 +1593,28 @@ public sealed class ElementLocator
         {
             case "ready":
                 RemoteValue actual = Property(readiness, "interactionOffset");
-                return (true, new ActionTarget(node, new PointerOffset(Property(actual, "x").As<NumberRemoteValue>().Value, Property(actual, "y").As<NumberRemoteValue>().Value)), string.Empty);
+                return new(true, new ActionTarget(node, new PointerOffset(Property(actual, "x").As<NumberRemoteValue>().Value, Property(actual, "y").As<NumberRemoteValue>().Value)), string.Empty);
             case "needsscroll":
                 await this.ScrollIntoViewAsync(node, onlyIfOutOfView: false, budget).ConfigureAwait(false);
-                return (false, null, "the element was scrolled into view");
+                return new(false, null, "the element was scrolled into view");
             default:
-                return (false, null, DescribeNotReady(Property(readiness, "reason").As<StringRemoteValue>().Value));
+                return new(false, null, DescribeNotReady(Property(readiness, "reason").As<StringRemoteValue>().Value));
         }
     }
 
-    private async Task<(bool Found, NodeRemoteValue? Node, string Observed)> TryFindOneAsync(TimeBudget budget)
+    private async Task<PollAttempt<NodeRemoteValue?>> TryFindOneAsync(TimeBudget budget)
     {
         NodeRemoteValue? node = await this.FindOneAsync(budget).ConfigureAwait(false);
-        return node is null ? (false, null, "no element matched") : (true, node, string.Empty);
+        return node is null ? new(false, null, "no element matched") : new(true, node, string.Empty);
     }
 
     // Waits for exactly one element to match, then makes an attempt on it, until the attempt is done.
-    private Task<T?> PollElementAsync<T>(TimeBudget budget, Func<NodeRemoteValue, Task<(bool Done, T? Result, string Observed)>> attempt)
+    private Task<T?> PollElementAsync<T>(TimeBudget budget, Func<NodeRemoteValue, Task<PollAttempt<T?>>> attempt)
     {
         return this.PollAsync(budget, $"{this} to be attached", async () =>
         {
             (bool found, NodeRemoteValue? node, string observed) = await this.TryFindOneAsync(budget).ConfigureAwait(false);
-            return found ? await attempt(node!).ConfigureAwait(false) : (false, default, observed);
+            return found ? await attempt(node!).ConfigureAwait(false) : new(false, default, observed);
         });
     }
 
@@ -1652,10 +1652,10 @@ public sealed class ElementLocator
     // looked up again.
     private async Task<string> QueryStateAsync(string state, TimeBudget budget)
     {
-        string? received = await this.PollElementAsync(budget, async node =>
+        string? received = await this.PollElementAsync<string>(budget, async node =>
         {
             string? received = await this.ReadElementStateAsync(node, state, budget).ConfigureAwait(false);
-            return received is null ? (false, null, DescribeNotReady("notconnected")) : (true, received, string.Empty);
+            return received is null ? new(false, null, DescribeNotReady("notconnected")) : new(true, received, string.Empty);
         }).ConfigureAwait(false);
         return received!;
     }
@@ -1672,61 +1672,61 @@ public sealed class ElementLocator
         };
     }
 
-    private async Task<(bool Done, bool Unused, string Observed)> TryCallOnElementAsync(string functionDeclaration, TimeBudget budget)
+    private async Task<PollAttempt<bool>> TryCallOnElementAsync(string functionDeclaration, TimeBudget budget)
     {
         (bool found, NodeRemoteValue? node, string observed) = await this.TryFindOneAsync(budget).ConfigureAwait(false);
         if (!found)
         {
-            return (false, false, observed);
+            return new(false, false, observed);
         }
 
         await this.Group.Driver.Script.CallFunctionAsync(this.Frame.Id, functionDeclaration, [node!.ToSharedReference()], this.Group.Options.SandboxName, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
-        return (true, true, string.Empty);
+        return new(true, true, string.Empty);
     }
 
-    private async Task<(bool Read, CheckedState? State, string Observed)> TryReadCheckedStateAsync(TimeBudget budget)
+    private async Task<PollAttempt<CheckedState?>> TryReadCheckedStateAsync(TimeBudget budget)
     {
         (bool found, NodeRemoteValue? node, string observed) = await this.TryFindOneAsync(budget).ConfigureAwait(false);
         if (!found)
         {
-            return (false, null, observed);
+            return new(false, null, observed);
         }
 
         RemoteValue? result = await this.QueryElementStateAsync(node!, "checked", budget).ConfigureAwait(false);
         return result is null
-            ? (false, null, DescribeNotReady("notconnected"))
-            : (true, new CheckedState(Property(result, "received").As<StringRemoteValue>().Value == "checked", Property(result, "isRadio").As<BooleanRemoteValue>().Value), string.Empty);
+            ? new(false, null, DescribeNotReady("notconnected"))
+            : new(true, new CheckedState(Property(result, "received").As<StringRemoteValue>().Value == "checked", Property(result, "isRadio").As<BooleanRemoteValue>().Value), string.Empty);
     }
 
-    private async Task<(bool Selected, IReadOnlyList<string>? Values, string Observed)> TrySelectOptionsAsync(List<SelectOption> selections, bool force, TimeBudget budget)
+    private async Task<PollAttempt<IReadOnlyList<string>?>> TrySelectOptionsAsync(List<SelectOption> selections, bool force, TimeBudget budget)
     {
         (bool found, NodeRemoteValue? node, string observed) = await this.TryFindOneAsync(budget).ConfigureAwait(false);
         if (!found)
         {
-            return (false, null, observed);
+            return new(false, null, observed);
         }
 
         string? notReady = force ? null : await this.CheckStatesAsync(node!, "['visible', 'enabled']", budget).ConfigureAwait(false);
         if (notReady is not null)
         {
-            return (false, null, notReady);
+            return new(false, null, notReady);
         }
 
         RemoteValue result = await this.Group.ScriptHost.CallActionsAsync(this.Frame.Id, "(actions, element, options) => actions.selectOptions(element, options)", [node!.ToSharedReference(), LocalValue.Array([.. selections.Select(selection => selection.ToLocalValue())])], budget).ConfigureAwait(false);
         switch (Property(result, "status").As<StringRemoteValue>().Value)
         {
             case "selected":
-                return (true, [.. Property(result, "values").As<CollectionRemoteValue>().Value!.Select(value => value.As<StringRemoteValue>().Value)], string.Empty);
+                return new(true, [.. Property(result, "values").As<CollectionRemoteValue>().Value!.Select(value => value.As<StringRemoteValue>().Value)], string.Empty);
             case "notselect":
                 throw new InvalidOperationException($"{this} is not a <select> element.");
             case "notmultiple":
                 throw new InvalidOperationException($"{this} is a <select> element that takes one option, but {selections.Count} were given.");
             case "missing":
-                return (false, null, $"no option matched {selections[OptionIndex(result)]}");
+                return new(false, null, $"no option matched {selections[OptionIndex(result)]}");
             case "disabled":
-                return (false, null, $"the option matching {selections[OptionIndex(result)]} was disabled");
+                return new(false, null, $"the option matching {selections[OptionIndex(result)]} was disabled");
             default:
-                return (false, null, DescribeNotReady("notconnected"));
+                return new(false, null, DescribeNotReady("notconnected"));
         }
     }
 
@@ -1744,13 +1744,13 @@ public sealed class ElementLocator
         await this.PerformKeyActionsAsync(value.Length == 0 ? builder.AddKeyChordAction(Keys.Delete) : builder.AddSendKeysToActiveElementAction(value), budget).ConfigureAwait(false);
     }
 
-    private async Task<(bool Selected, bool Unused, string Observed)> TrySelectTextAsync(string interactionType, bool force, TimeBudget budget)
+    private async Task<PollAttempt<bool>> TrySelectTextAsync(string interactionType, bool force, TimeBudget budget)
     {
         IList<NodeRemoteValue> nodes = await this.ResolveAsync(StrictMatchLimit, budget).ConfigureAwait(false);
         this.ThrowIfAmbiguous(nodes);
         if (nodes.Count == 0)
         {
-            return (false, false, "no element matched");
+            return new(false, false, "no element matched");
         }
 
         NodeRemoteValue node = nodes[0];
@@ -1769,40 +1769,40 @@ public sealed class ElementLocator
                     break;
                 case "needsscroll":
                     await this.ScrollIntoViewAsync(node, onlyIfOutOfView: false, budget).ConfigureAwait(false);
-                    return (false, false, "the element was scrolled into view");
+                    return new(false, false, "the element was scrolled into view");
                 default:
                     string reason = Property(readiness, "reason").As<StringRemoteValue>().Value;
                     return reason == "noteditable"
                         ? throw new InvalidOperationException($"{this} is not an editable element.")
-                        : (false, false, DescribeNotReady(reason));
+                        : new(false, false, DescribeNotReady(reason));
             }
         }
 
         RemoteValue selected = await this.Group.ScriptHost.CallActionsAsync(this.Frame.Id, "(actions, element) => actions.selectText(element)", [node.ToSharedReference()], budget).ConfigureAwait(false);
-        return selected.As<BooleanRemoteValue>().Value ? (true, true, string.Empty) : (false, false, DescribeNotReady("notconnected"));
+        return selected.As<BooleanRemoteValue>().Value ? new(true, true, string.Empty) : new(false, false, DescribeNotReady("notconnected"));
     }
 
-    private async Task<(bool InView, bool Unused, string Observed)> TryScrollIntoViewAsync(TimeBudget budget)
+    private async Task<PollAttempt<bool>> TryScrollIntoViewAsync(TimeBudget budget)
     {
         IList<NodeRemoteValue> nodes = await this.ResolveAsync(StrictMatchLimit, budget).ConfigureAwait(false);
         this.ThrowIfAmbiguous(nodes);
         if (nodes.Count == 0)
         {
-            return (false, false, "no element matched");
+            return new(false, false, "no element matched");
         }
 
         RemoteValue states = await this.Group.ScriptHost.CallAsync(this.Frame.Id, "(inspector, element) => inspector.queryElementStates(element, ['stable', 'visible', 'inview'])", [nodes[0].ToSharedReference()], budget).ConfigureAwait(false);
         switch (Property(states, "status").As<StringRemoteValue>().Value)
         {
             case "success":
-                return (true, true, string.Empty);
+                return new(true, true, string.Empty);
             case "failure" when Property(states, "missingState").As<StringRemoteValue>().Value == "notinview":
                 await this.ScrollIntoViewAsync(nodes[0], onlyIfOutOfView: false, budget).ConfigureAwait(false);
-                return (false, false, "the element was scrolled into view");
+                return new(false, false, "the element was scrolled into view");
             case "failure":
-                return (false, false, DescribeNotReady(Property(states, "missingState").As<StringRemoteValue>().Value));
+                return new(false, false, DescribeNotReady(Property(states, "missingState").As<StringRemoteValue>().Value));
             default:
-                return (false, false, DescribeNotReady(Property(states, "message").As<StringRemoteValue>().Value));
+                return new(false, false, DescribeNotReady(Property(states, "message").As<StringRemoteValue>().Value));
         }
     }
 
@@ -1811,27 +1811,27 @@ public sealed class ElementLocator
         return this.Group.ScriptHost.CallAsync(this.Frame.Id, "async (inspector, element, onlyIfOutOfView) => { if (!onlyIfOutOfView || !(await inspector.isElementInViewPort(element))) { element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); } }", [node.ToSharedReference(), LocalValue.Boolean(onlyIfOutOfView)], budget);
     }
 
-    private async Task<(bool Reached, string Observed)> CheckStateAsync(ElementState state, TimeBudget budget)
+    private async Task<StateCheck> CheckStateAsync(ElementState state, TimeBudget budget)
     {
         IList<NodeRemoteValue> nodes = await this.ResolveAsync(StrictMatchLimit, budget).ConfigureAwait(false);
         if (state == ElementState.Detached)
         {
-            return (nodes.Count == 0, "an element still matched");
+            return new(nodes.Count == 0, "an element still matched");
         }
 
         this.ThrowIfAmbiguous(nodes);
         if (nodes.Count == 0)
         {
-            return (state == ElementState.Hidden, "no element matched");
+            return new(state == ElementState.Hidden, "no element matched");
         }
 
         if (state == ElementState.Attached)
         {
-            return (true, string.Empty);
+            return new(true, string.Empty);
         }
 
         bool visible = await this.IsVisibleAsync(nodes[0], budget).ConfigureAwait(false);
-        return (visible == (state == ElementState.Visible), visible ? "the element was visible" : "the element was hidden");
+        return new(visible == (state == ElementState.Visible), visible ? "the element was visible" : "the element was hidden");
     }
 
     private void ThrowIfAmbiguous(IList<NodeRemoteValue> nodes)
@@ -1841,6 +1841,18 @@ public sealed class ElementLocator
             throw new AmbiguousElementException($"{this} matched more than one element, where one was expected.");
         }
     }
+
+    /// <summary>
+    /// Whether an element's accessibility snapshot matches a template, and the snapshot as text without refs.
+    /// </summary>
+    /// <param name="Matches">Whether the snapshot matches.</param>
+    /// <param name="Actual">The snapshot as text without refs.</param>
+    internal readonly record struct AriaMatch(bool Matches, string Actual);
+
+    // One try of a poll: whether it is done, its result, and what it saw when it is not.
+    private readonly record struct PollAttempt<T>(bool Done, T Result, string Observed);
+
+    private readonly record struct StateCheck(bool Reached, string Observed);
 
     private abstract record Step
     {

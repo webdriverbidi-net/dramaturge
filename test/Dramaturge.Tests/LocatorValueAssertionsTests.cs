@@ -237,13 +237,13 @@ public class LocatorValueAssertionsTests
         Assert.Equal("color", (string?)call["arguments"]![1]!["value"]);
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page, FakeTimeProvider Time)> OpenPageAsync()
+    private static async Task<TimedPage> OpenPageAsync()
     {
         FakeTimeProvider time = new();
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { PollInterval = PollInterval, TimeProvider = time }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page, time);
+        return new TimedPage(driver, session, page, time);
     }
 
     private static JsonObject Array(params JsonObject[] items)

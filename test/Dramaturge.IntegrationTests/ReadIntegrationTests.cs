@@ -75,8 +75,8 @@ public class ReadIntegrationTests
         await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
         Page page = await OpenAsync(group, server);
 
-        (int Width, int Height) box = PngSize(await page.Locate(new CssLocator("#box")).ScreenshotAsync(cancellationToken: TestContext.Current.CancellationToken));
-        (int Width, int Height) far = PngSize(await page.Locate(new CssLocator("#far")).ScreenshotAsync(cancellationToken: TestContext.Current.CancellationToken));
+        ImageSize box = PngSize(await page.Locate(new CssLocator("#box")).ScreenshotAsync(cancellationToken: TestContext.Current.CancellationToken));
+        ImageSize far = PngSize(await page.Locate(new CssLocator("#far")).ScreenshotAsync(cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Equal(box.Width, box.Height * 2);
         Assert.Equal(far.Width * 2, far.Height * 3);
@@ -105,9 +105,11 @@ public class ReadIntegrationTests
     }
 
     // A PNG's width and height are big-endian integers at bytes 16 and 20 of its header.
-    private static (int Width, int Height) PngSize(byte[] image)
+    private static ImageSize PngSize(byte[] image)
     {
         Assert.Equal([0x89, (byte)'P', (byte)'N', (byte)'G'], image.Take(4));
-        return ((image[16] << 24) | (image[17] << 16) | (image[18] << 8) | image[19], (image[20] << 24) | (image[21] << 16) | (image[22] << 8) | image[23]);
+        return new ImageSize((image[16] << 24) | (image[17] << 16) | (image[18] << 8) | image[19], (image[20] << 24) | (image[21] << 16) | (image[22] << 8) | image[23]);
     }
+
+    private readonly record struct ImageSize(int Width, int Height);
 }

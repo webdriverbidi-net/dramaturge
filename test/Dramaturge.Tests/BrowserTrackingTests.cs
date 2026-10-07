@@ -45,7 +45,7 @@ public class BrowserTrackingTests
         await using BiDiDriver ownedDriver = driver;
         session.RemoteEnd.AnswerWith("browsingContext.getTree", _ => new FakeResponse(
             new JsonObject() { ["contexts"] = new JsonArray(ContextJson("closing-tab", Browser.DefaultBrowserId, null)) },
-            [("browsingContext.contextDestroyed", ContextJson("closing-tab", Browser.DefaultBrowserId, null))]));
+            [new FakeEvent("browsingContext.contextDestroyed", ContextJson("closing-tab", Browser.DefaultBrowserId, null))]));
 
         await using BrowserGroup group = await BrowserGroup.ConnectAsync(driver, cancellationToken: TestContext.Current.CancellationToken);
 

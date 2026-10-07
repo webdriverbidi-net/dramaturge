@@ -20,10 +20,10 @@ namespace Dramaturge.Network;
 internal sealed record HarArchiveEntry(
     string Method,
     string Url,
-    IReadOnlyList<(string Name, string Value)> RequestHeaders,
+    IReadOnlyList<HarHeader> RequestHeaders,
     byte[]? RequestBody,
     int Status,
     string StatusText,
-    IReadOnlyList<(string Name, string Value)> ResponseHeaders,
+    IReadOnlyList<HarHeader> ResponseHeaders,
     byte[] ResponseBody,
     string RedirectUrl);

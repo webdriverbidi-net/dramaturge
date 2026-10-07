@@ -11,8 +11,8 @@ using System.Text.Json.Nodes;
 /// A fake remote end's answer to a command: the result, and the events delivered before it.
 /// </summary>
 /// <param name="Result">The command's result.</param>
-/// <param name="EventsBefore">The events, each a method and its parameters, delivered before the result.</param>
-public sealed record FakeResponse(JsonNode Result, IReadOnlyList<(string Method, JsonObject Parameters)> EventsBefore)
+/// <param name="EventsBefore">The events delivered before the result.</param>
+public sealed record FakeResponse(JsonNode Result, IReadOnlyList<FakeEvent> EventsBefore)
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="FakeResponse"/> class with no events.
@@ -39,9 +39,9 @@ public sealed record FakeResponse(JsonNode Result, IReadOnlyList<(string Method,
     /// </summary>
     /// <param name="error">The protocol error code, such as "unknown error".</param>
     /// <param name="message">The error message.</param>
-    /// <param name="eventsBefore">The events, each a method and its parameters, delivered before the error.</param>
+    /// <param name="eventsBefore">The events delivered before the error.</param>
     /// <returns>The answer.</returns>
-    public static FakeResponse Failure(string error, string message, params (string Method, JsonObject Parameters)[] eventsBefore)
+    public static FakeResponse Failure(string error, string message, params FakeEvent[] eventsBefore)
     {
         return new FakeResponse(new JsonObject(), eventsBefore) { Error = error, ErrorMessage = message };
     }

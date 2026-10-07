@@ -96,7 +96,7 @@ public class ReadTests
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider _) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("box-1"));
-        AnswerScripts(session, Object(("received", String(received)), ("isRadio", new JsonObject() { ["type"] = "boolean", ["value"] = false })));
+        AnswerScripts(session, Object(new JsonField("received", String(received)), new JsonField("isRadio", new JsonObject() { ["type"] = "boolean", ["value"] = false })));
 
         Assert.Equal(isChecked, await page.Locate(new CssLocator("input")).IsCheckedAsync(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken));
     }
@@ -183,7 +183,7 @@ public class ReadTests
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("div-1"));
         int[] calls = [0];
         session.RemoteEnd.AnswerWith("script.callFunction", _ => Interlocked.Increment(ref calls[0]) == 1
-            ? ProtocolJson.Success(Object(("x", Number(20.5)), ("y", Number(30)), ("width", Number(100)), ("height", Number(50))))
+            ? ProtocolJson.Success(Object(new JsonField("x", Number(20.5)), new JsonField("y", Number(30)), new JsonField("width", Number(100)), new JsonField("height", Number(50))))
             : ProtocolJson.Success(Null()));
 
         Assert.Equal(new BoundingBox(page.MainFrame, 20.5, 30, 100, 50), await page.Locate(new CssLocator("div")).BoundingBoxAsync(cancellationToken: TestContext.Current.CancellationToken));
@@ -197,7 +197,7 @@ public class ReadTests
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider time) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("div-1"));
-        AnswerScripts(session, Object(("status", String("failure")), ("missingState", String("hidden"))), Object(("status", String("success"))));
+        AnswerScripts(session, Object(new JsonField("status", String("failure")), new JsonField("missingState", String("hidden"))), Object(new JsonField("status", String("success"))));
         session.RemoteEnd.AnswerWith("browsingContext.captureScreenshot", new JsonObject() { ["data"] = Convert.ToBase64String([1, 2, 3]) });
 
         byte[] image = await DriveAsync(time, page.Locate(new CssLocator("div")).ScreenshotAsync(new ImageFormat() { Type = "image/jpeg", Quality = 0.5 }, cancellationToken: TestContext.Current.CancellationToken));
@@ -220,7 +220,7 @@ public class ReadTests
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider time) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes(matches));
-        AnswerScripts(session, Object(("status", String(status)), ("message", String("notconnected"))));
+        AnswerScripts(session, Object(new JsonField("status", String(status)), new JsonField("message", String("notconnected"))));
 
         Task<byte[]> screenshot = page.Locate(new CssLocator("div")).ScreenshotAsync(timeout: TimeSpan.FromSeconds(1), cancellationToken: TestContext.Current.CancellationToken);
         WebDriverBiDiTimeoutException exception = await Assert.ThrowsAsync<WebDriverBiDiTimeoutException>(() => DriveAsync(time, screenshot));
@@ -239,13 +239,13 @@ public class ReadTests
         await Assert.ThrowsAsync<AmbiguousElementException>(() => page.Locate(new CssLocator("p")).TextContentAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page, FakeTimeProvider Time)> OpenPageAsync()
+    private static async Task<TimedPage> OpenPageAsync()
     {
         FakeTimeProvider time = new();
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { PollInterval = PollInterval, TimeProvider = time }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page, time);
+        return new TimedPage(driver, session, page, time);
     }
 
     // Answers each script with the next result in turn, repeating the last.
@@ -265,14 +265,14 @@ public class ReadTests
         return new JsonObject() { ["type"] = "null" };
     }
 
-    private static JsonObject Object(params (string Name, JsonNode Value)[] properties)
+    private static JsonObject Object(params JsonField[] properties)
     {
         return new JsonObject() { ["type"] = "object", ["value"] = new JsonArray([.. properties.Select(property => (JsonNode)new JsonArray(property.Name, property.Value))]) };
     }
 
     private static JsonObject Received(string received)
     {
-        return Object(("matches", new JsonObject() { ["type"] = "boolean", ["value"] = false }), ("received", String(received)));
+        return Object(new JsonField("matches", new JsonObject() { ["type"] = "boolean", ["value"] = false }), new JsonField("received", String(received)));
     }
 
     private static JsonObject String(string value)

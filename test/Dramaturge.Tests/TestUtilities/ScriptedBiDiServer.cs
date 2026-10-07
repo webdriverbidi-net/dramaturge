@@ -19,7 +19,7 @@ public sealed class ScriptedBiDiServer : IAsyncDisposable
 {
     private readonly Server server = new();
     private readonly ConcurrentQueue<JsonObject> receivedCommands = new();
-    private readonly ConcurrentDictionary<string, (string Error, string Message)> errors = new();
+    private readonly ConcurrentDictionary<string, ErrorResponse> errors = new();
 
     private ScriptedBiDiServer()
     {
@@ -65,7 +65,7 @@ public sealed class ScriptedBiDiServer : IAsyncDisposable
     /// <param name="message">The error message.</param>
     public void FailWith(string method, string error, string message)
     {
-        this.errors[method] = (error, message);
+        this.errors[method] = new ErrorResponse(error, message);
     }
 
     /// <inheritdoc/>
@@ -86,7 +86,7 @@ public sealed class ScriptedBiDiServer : IAsyncDisposable
         string method = (string)command["method"]!;
         this.receivedCommands.Enqueue(command);
         JsonObject response = new() { ["id"] = (long)command["id"]! };
-        if (this.errors.TryGetValue(method, out (string Error, string Message) error))
+        if (this.errors.TryGetValue(method, out ErrorResponse? error))
         {
             response["type"] = "error";
             response["error"] = error.Error;
@@ -125,4 +125,6 @@ public sealed class ScriptedBiDiServer : IAsyncDisposable
             },
         };
     }
+
+    private sealed record ErrorResponse(string Error, string Message);
 }

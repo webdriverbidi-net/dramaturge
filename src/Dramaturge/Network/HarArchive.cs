@@ -77,9 +77,9 @@ internal sealed class HarArchive
     /// <returns>The entry, or <see langword="null"/> if none matches.</returns>
     public HarArchiveEntry? Find(RequestData request, byte[]? body)
     {
-        string? boundary = Boundary(request.Headers.Select(header => (header.Name, HeaderValue(header))));
+        string? boundary = Boundary(request.Headers.Select(header => new HarHeader(header.Name, HeaderValue(header))));
         HarArchiveEntry? best = null;
-        (int SameBody, int Headers) bestScore = (-1, -1);
+        long bestScore = -1;
         foreach (HarArchiveEntry entry in this.Candidates(request))
         {
             bool bodyCompared = body is not null && entry.RequestBody is not null;
@@ -88,8 +88,9 @@ internal sealed class HarArchive
                 continue;
             }
 
-            (int SameBody, int Headers) score = (bodyCompared ? 1 : 0, entry.RequestHeaders.Count(recorded => request.Headers.Any(header => string.Equals(header.Name, recorded.Name, StringComparison.OrdinalIgnoreCase) && HeaderValue(header) == recorded.Value)));
-            if (score.CompareTo(bestScore) > 0)
+            // A matching body outranks any number of matching headers.
+            long score = ((bodyCompared ? 1L : 0L) << 32) + entry.RequestHeaders.Count(recorded => request.Headers.Any(header => string.Equals(header.Name, recorded.Name, StringComparison.OrdinalIgnoreCase) && HeaderValue(header) == recorded.Value));
+            if (score > bestScore)
             {
                 best = entry;
                 bestScore = score;
@@ -110,9 +111,9 @@ internal sealed class HarArchive
         return header.Value.Type == BytesValueType.String ? header.Value.Value : Encoding.UTF8.GetString(header.Value.ValueAsByteArray);
     }
 
-    private static string? Boundary(IEnumerable<(string Name, string Value)> headers)
+    private static string? Boundary(IEnumerable<HarHeader> headers)
     {
-        string? contentType = headers.FirstOrDefault(header => string.Equals(header.Name, "Content-Type", StringComparison.OrdinalIgnoreCase)).Value;
+        string? contentType = headers.FirstOrDefault(header => string.Equals(header.Name, "Content-Type", StringComparison.OrdinalIgnoreCase))?.Value;
         if (contentType is null || contentType.IndexOf("multipart/form-data", StringComparison.OrdinalIgnoreCase) < 0)
         {
             return null;
@@ -214,10 +215,10 @@ internal sealed class HarArchive
             response.TryGetProperty("redirectURL", out JsonElement redirect) ? redirect.GetString() ?? string.Empty : string.Empty);
     }
 
-    private static List<(string Name, string Value)> ReadHeaders(JsonElement message)
+    private static List<HarHeader> ReadHeaders(JsonElement message)
     {
         return message.TryGetProperty("headers", out JsonElement headers)
-            ? [.. headers.EnumerateArray().Select(header => (header.GetProperty("name").GetString()!, header.GetProperty("value").GetString()!))]
+            ? [.. headers.EnumerateArray().Select(header => new HarHeader(header.GetProperty("name").GetString()!, header.GetProperty("value").GetString()!))]
             : [];
     }
 

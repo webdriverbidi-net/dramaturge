@@ -232,7 +232,7 @@ public sealed class NetworkTrafficMonitor : IAsyncDisposable
             intercept.Contexts.AddRange(starting.BrowsingContextIds);
             intercept.UrlPatterns.Add(new UrlPatternString(modification.UrlPattern));
             string interceptId = (await network.AddInterceptAsync(intercept, cancellationToken: cancellationToken).ConfigureAwait(false)).InterceptId;
-            starting.RequestIntercepts.Add((interceptId, modification));
+            starting.RequestIntercepts.Add(new RequestIntercept(interceptId, modification));
         }
 
         if (starting.Credentials.Length > 0)
@@ -482,7 +482,7 @@ public sealed class NetworkTrafficMonitor : IAsyncDisposable
 
         public List<IDisposable> Observers { get; } = [];
 
-        public List<(string InterceptId, NetworkRequestModification Modification)> RequestIntercepts { get; } = [];
+        public List<RequestIntercept> RequestIntercepts { get; } = [];
 
         public string? CollectorId { get; set; }
 
@@ -493,4 +493,6 @@ public sealed class NetworkTrafficMonitor : IAsyncDisposable
         // An event without a user context cannot be attributed to one, so a monitor limited to user contexts ignores it.
         public bool IsMonitored(string? userContextId) => this.UserContextIds.Length == 0 || (userContextId is not null && this.UserContextIds.Contains(userContextId));
     }
+
+    private sealed record RequestIntercept(string InterceptId, NetworkRequestModification Modification);
 }

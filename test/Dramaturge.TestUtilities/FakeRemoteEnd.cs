@@ -21,9 +21,9 @@ using WebDriverBiDi.Protocol;
 public sealed class FakeRemoteEnd : Connection
 {
     private readonly ConcurrentQueue<JsonObject> sentCommands = new();
-    private readonly ConcurrentQueue<(string Method, JsonNode Result)> sentResults = new();
+    private readonly ConcurrentQueue<SentResult> sentResults = new();
     private readonly ConcurrentDictionary<string, Func<JsonObject, FakeResponse>> results = new();
-    private readonly ConcurrentDictionary<string, (string Error, string Message)> errors = new();
+    private readonly ConcurrentDictionary<string, ErrorResponse> errors = new();
     private readonly ConcurrentDictionary<string, bool> unansweredMethods = new();
     private TaskCompletionSource<bool> closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int isOpenFlag;
@@ -44,12 +44,12 @@ public sealed class FakeRemoteEnd : Connection
     /// Creates a driver connected to a new fake remote end.
     /// </summary>
     /// <returns>The started driver and its remote end.</returns>
-    public static async Task<(BiDiDriver Driver, FakeRemoteEnd RemoteEnd)> ConnectAsync()
+    public static async Task<ConnectedDriver> ConnectAsync()
     {
         FakeRemoteEnd remoteEnd = new();
         BiDiDriver driver = new(TimeSpan.FromSeconds(10), new Transport(remoteEnd));
         await driver.StartAsync("ws://fake.remote.end/session");
-        return (driver, remoteEnd);
+        return new ConnectedDriver(driver, remoteEnd);
     }
 
     /// <summary>
@@ -92,7 +92,7 @@ public sealed class FakeRemoteEnd : Connection
     /// <param name="message">The error message.</param>
     public void FailWith(string method, string error, string message)
     {
-        this.errors[method] = (error, message);
+        this.errors[method] = new ErrorResponse(error, message);
     }
 
     /// <summary>
@@ -197,7 +197,7 @@ public sealed class FakeRemoteEnd : Connection
 
         JsonObject response = new() { ["id"] = (long)command["id"]! };
         IReadOnlyList<JsonObject> events = [];
-        if (this.errors.TryGetValue(method, out (string Error, string Message) error))
+        if (this.errors.TryGetValue(method, out ErrorResponse? error))
         {
             response["type"] = "error";
             response["error"] = error.Error;
@@ -210,7 +210,7 @@ public sealed class FakeRemoteEnd : Connection
             if (answer.Error is null)
             {
                 response["type"] = "success";
-                this.sentResults.Enqueue((method, answer.Result.DeepClone()));
+                this.sentResults.Enqueue(new SentResult(method, answer.Result.DeepClone()));
                 response["result"] = answer.Result;
             }
             else
@@ -271,4 +271,15 @@ public sealed class FakeRemoteEnd : Connection
             _ => [],
         };
     }
+
+    /// <summary>
+    /// A started driver and the fake remote end it is connected to.
+    /// </summary>
+    /// <param name="Driver">The started driver.</param>
+    /// <param name="RemoteEnd">The remote end.</param>
+    public sealed record ConnectedDriver(BiDiDriver Driver, FakeRemoteEnd RemoteEnd);
+
+    private sealed record SentResult(string Method, JsonNode Result);
+
+    private sealed record ErrorResponse(string Error, string Message);
 }

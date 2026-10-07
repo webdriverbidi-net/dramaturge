@@ -37,7 +37,7 @@ public sealed class HarRouteTests : IDisposable
         await using BiDiDriver ownedDriver = driver;
         string har = this.WriteHar(Entry("GET", RequestUrl, 201, "Created", Content("hello"), responseHeaders:
         [
-            ("Content-Type", "text/plain"), ("Set-Cookie", "a=1"), ("Set-Cookie", "b=2"), ("Content-Encoding", "gzip"), ("Content-Length", "999"), ("Transfer-Encoding", "chunked"), (":status", "201"),
+            new HeaderEntry("Content-Type", "text/plain"), new HeaderEntry("Set-Cookie", "a=1"), new HeaderEntry("Set-Cookie", "b=2"), new HeaderEntry("Content-Encoding", "gzip"), new HeaderEntry("Content-Length", "999"), new HeaderEntry("Transfer-Encoding", "chunked"), new HeaderEntry(":status", "201"),
         ]));
 
         RouteRegistration route = await page.RouteFromHarAsync(har, cancellationToken: TestContext.Current.CancellationToken);
@@ -58,12 +58,12 @@ public sealed class HarRouteTests : IDisposable
         await using BiDiDriver ownedDriver = driver;
         string har = this.WriteHar(
             Entry("POST", RequestUrl, 200, "OK", Content("posted")),
-            Entry("GET", RequestUrl + "#recorded-fragment", 200, "OK", Content("first"), requestHeaders: [("Accept", "text/html")]),
-            Entry("GET", RequestUrl, 200, "OK", Content("most headers"), requestHeaders: [("accept", "application/json"), ("X-Client", "test")]),
-            Entry("GET", RequestUrl, 200, "OK", Content("fewer headers"), requestHeaders: [("Accept", "application/json")]));
+            Entry("GET", RequestUrl + "#recorded-fragment", 200, "OK", Content("first"), requestHeaders: [new HeaderEntry("Accept", "text/html")]),
+            Entry("GET", RequestUrl, 200, "OK", Content("most headers"), requestHeaders: [new HeaderEntry("accept", "application/json"), new HeaderEntry("X-Client", "test")]),
+            Entry("GET", RequestUrl, 200, "OK", Content("fewer headers"), requestHeaders: [new HeaderEntry("Accept", "application/json")]));
         await page.RouteFromHarAsync(har, cancellationToken: TestContext.Current.CancellationToken);
 
-        JsonObject withHeaders = Blocked(page.Id, session, "request-1", RequestUrl + "#page-fragment", headers: [("Accept", "application/json"), ("X-Client", "test")]);
+        JsonObject withHeaders = Blocked(page.Id, session, "request-1", RequestUrl + "#page-fragment", headers: [new HeaderEntry("Accept", "application/json"), new HeaderEntry("X-Client", "test")]);
         JsonObject withBase64Header = Blocked(page.Id, session, "request-2");
         withBase64Header["request"]!["headers"] = new JsonArray(new JsonObject() { ["name"] = "Accept", ["value"] = new JsonObject() { ["type"] = "base64", ["value"] = Convert.ToBase64String(Encoding.UTF8.GetBytes("application/json")) } });
         JsonObject withoutHeaders = Blocked(page.Id, session, "request-3");
@@ -102,7 +102,7 @@ public sealed class HarRouteTests : IDisposable
         redirect["response"]!["redirectURL"] = "https://example.com/moved";
         JsonObject notRedirect = Entry("GET", "https://example.com/created", 201, "Created", Content(string.Empty));
         notRedirect["response"]!["redirectURL"] = "https://example.com/ignored";
-        JsonObject recordedLocation = Entry("GET", "https://example.com/recorded", 301, "Moved", Content(string.Empty), responseHeaders: [("location", "https://example.com/kept")]);
+        JsonObject recordedLocation = Entry("GET", "https://example.com/recorded", 301, "Moved", Content(string.Empty), responseHeaders: [new HeaderEntry("location", "https://example.com/kept")]);
         recordedLocation["response"]!["redirectURL"] = "https://example.com/not-added";
         string har = this.WriteHar(redirect, notRedirect, recordedLocation);
         await page.RouteFromHarAsync(har, _ => true, cancellationToken: TestContext.Current.CancellationToken);
@@ -129,8 +129,8 @@ public sealed class HarRouteTests : IDisposable
         string har = this.WriteHar(
             Entry("POST", RequestUrl, 200, "OK", Content("no recorded body")),
             Entry("POST", RequestUrl, 200, "OK", Content("text body"), requestBody: Content("name=Ada")),
-            Entry("POST", RequestUrl, 200, "OK", Content("form body"), requestBody: Content(RecordedForm), requestHeaders: [("Content-Type", "multipart/form-data; boundary=recorded")]),
-            Entry("POST", RequestUrl, 200, "OK", Content("other form"), requestBody: Content("--x\r\nOther\r\n--x--"), requestHeaders: [("Content-Type", "multipart/form-data")]));
+            Entry("POST", RequestUrl, 200, "OK", Content("form body"), requestBody: Content(RecordedForm), requestHeaders: [new HeaderEntry("Content-Type", "multipart/form-data; boundary=recorded")]),
+            Entry("POST", RequestUrl, 200, "OK", Content("other form"), requestBody: Content("--x\r\nOther\r\n--x--"), requestHeaders: [new HeaderEntry("Content-Type", "multipart/form-data")]));
         Dictionary<string, string> bodies = new()
         {
             ["request-text"] = "name=Ada",
@@ -143,8 +143,8 @@ public sealed class HarRouteTests : IDisposable
         await page.RouteFromHarAsync(har, cancellationToken: TestContext.Current.CancellationToken);
 
         await session.RemoteEnd.RaiseEventAsync("network.beforeRequestSent", Blocked(page.Id, session, "request-text", method: "POST", bodySize: 8));
-        await session.RemoteEnd.RaiseEventAsync("network.beforeRequestSent", Blocked(page.Id, session, "request-form", method: "POST", bodySize: 80, headers: [("Content-Type", "multipart/form-data; boundary=\"browser-made-a-longer-one\"")]));
-        await session.RemoteEnd.RaiseEventAsync("network.beforeRequestSent", Blocked(page.Id, session, "request-unrecorded", method: "POST", bodySize: 10, headers: [("Content-Type", "text/plain")]));
+        await session.RemoteEnd.RaiseEventAsync("network.beforeRequestSent", Blocked(page.Id, session, "request-form", method: "POST", bodySize: 80, headers: [new HeaderEntry("Content-Type", "multipart/form-data; boundary=\"browser-made-a-longer-one\"")]));
+        await session.RemoteEnd.RaiseEventAsync("network.beforeRequestSent", Blocked(page.Id, session, "request-unrecorded", method: "POST", bodySize: 10, headers: [new HeaderEntry("Content-Type", "text/plain")]));
         await session.RemoteEnd.RaiseEventAsync("network.beforeRequestSent", Blocked(page.Id, session, "request-lost", method: "POST", bodySize: null));
         await session.RemoteEnd.RaiseEventAsync("network.beforeRequestSent", Blocked(page.Id, session, "request-empty", method: "POST", bodySize: 0));
         await session.RemoteEnd.WaitForCommandAsync("network.provideResponse", 5);
@@ -296,12 +296,12 @@ public sealed class HarRouteTests : IDisposable
         Assert.Empty(session.RemoteEnd.CommandsFor("network.addIntercept"));
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, BrowserGroup Group, Page Page)> OpenPageAsync()
+    private static async Task<GroupPage> OpenPageAsync()
     {
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, cancellationToken: TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, group, page);
+        return new GroupPage(driver, session, group, page);
     }
 
     private static async Task<JsonObject> RaiseAndWaitForAsync(FakeSession session, string method, JsonObject blocked)
@@ -310,7 +310,7 @@ public sealed class HarRouteTests : IDisposable
         return (await session.RemoteEnd.WaitForCommandAsync(method).WaitAsync(EventWait, TestContext.Current.CancellationToken))["params"]!.AsObject();
     }
 
-    private static JsonObject Blocked(string contextId, FakeSession session, string requestId = "request-1", string url = RequestUrl, string method = "GET", ulong? bodySize = 0, (string Name, string Value)[]? headers = null)
+    private static JsonObject Blocked(string contextId, FakeSession session, string requestId = "request-1", string url = RequestUrl, string method = "GET", ulong? bodySize = 0, HeaderEntry[]? headers = null)
     {
         JsonObject request = new()
         {
@@ -344,9 +344,9 @@ public sealed class HarRouteTests : IDisposable
 
     private static JsonObject Content(string text) => new() { ["mimeType"] = "text/plain", ["text"] = text };
 
-    private static JsonObject Entry(string method, string url, int status, string statusText, JsonObject content, (string Name, string Value)[]? requestHeaders = null, (string Name, string Value)[]? responseHeaders = null, JsonObject? requestBody = null)
+    private static JsonObject Entry(string method, string url, int status, string statusText, JsonObject content, HeaderEntry[]? requestHeaders = null, HeaderEntry[]? responseHeaders = null, JsonObject? requestBody = null)
     {
-        static JsonArray HeaderArray((string Name, string Value)[]? headers) => new([.. (headers ?? []).Select(header => (JsonNode)new JsonObject() { ["name"] = header.Name, ["value"] = header.Value })]);
+        static JsonArray HeaderArray(HeaderEntry[]? headers) => new([.. (headers ?? []).Select(header => (JsonNode)new JsonObject() { ["name"] = header.Name, ["value"] = header.Value })]);
         JsonObject request = new() { ["method"] = method, ["url"] = url, ["headers"] = HeaderArray(requestHeaders) };
         if (requestBody is not null)
         {
@@ -374,4 +374,8 @@ public sealed class HarRouteTests : IDisposable
         File.WriteAllText(path, contents);
         return path;
     }
+
+    private sealed record GroupPage(BiDiDriver Driver, FakeSession Session, BrowserGroup Group, Page Page);
+
+    private sealed record HeaderEntry(string Name, string Value);
 }

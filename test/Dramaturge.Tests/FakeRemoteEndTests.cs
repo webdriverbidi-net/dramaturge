@@ -95,7 +95,7 @@ public class FakeRemoteEndTests
             ["timestamp"] = 1790000000000,
             ["url"] = "https://example.com/",
         };
-        remoteEnd.AnswerWith("browsingContext.close", _ => FakeResponse.Failure("unknown error", "gone", ("browsingContext.navigationStarted", eventParameters)));
+        remoteEnd.AnswerWith("browsingContext.close", _ => FakeResponse.Failure("unknown error", "gone", new FakeEvent("browsingContext.navigationStarted", eventParameters)));
 
         await Assert.ThrowsAsync<WebDriverBiDiCommandException>(() => driver.BrowsingContext.CloseAsync(new CloseCommandParameters("context-1"), cancellationToken: TestContext.Current.CancellationToken));
         arrivals.Add("error");
@@ -117,7 +117,7 @@ public class FakeRemoteEndTests
             ["timestamp"] = 1790000000000,
             ["url"] = "https://example.com/",
         };
-        remoteEnd.AnswerWith("browsingContext.close", _ => new FakeResponse(new JsonObject(), [("browsingContext.domContentLoaded", eventParameters)]));
+        remoteEnd.AnswerWith("browsingContext.close", _ => new FakeResponse(new JsonObject(), [new FakeEvent("browsingContext.domContentLoaded", eventParameters)]));
 
         await driver.BrowsingContext.CloseAsync(new CloseCommandParameters("context-1"), cancellationToken: TestContext.Current.CancellationToken);
         arrivals.Add("response");

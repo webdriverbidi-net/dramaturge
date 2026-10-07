@@ -175,13 +175,13 @@ public class PointerExtrasTests
         Assert.Empty(session.RemoteEnd.CommandsFor("script.callFunction"));
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page, FakeTimeProvider Time)> OpenPageAsync()
+    private static async Task<TimedPage> OpenPageAsync()
     {
         FakeTimeProvider time = new();
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { PollInterval = PollInterval, TimeProvider = time }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page, time);
+        return new TimedPage(driver, session, page, time);
     }
 
     // Finds "#source" as source-1 and "#target" as target-1, unless the target is missing.
@@ -202,7 +202,7 @@ public class PointerExtrasTests
             : ProtocolJson.Success(new JsonObject() { ["type"] = "undefined" }));
     }
 
-    private static JsonObject Readiness(string status, params (string Name, JsonNode Value)[] extra)
+    private static JsonObject Readiness(string status, params JsonField[] extra)
     {
         JsonArray entries = [new JsonArray("status", new JsonObject() { ["type"] = "string", ["value"] = status })];
         foreach ((string name, JsonNode value) in extra)
@@ -220,12 +220,12 @@ public class PointerExtrasTests
             ["type"] = "object",
             ["value"] = new JsonArray(new JsonArray("x", new JsonObject() { ["type"] = "number", ["value"] = x }), new JsonArray("y", new JsonObject() { ["type"] = "number", ["value"] = y })),
         };
-        return Readiness("ready", ("interactionOffset", offset));
+        return Readiness("ready", new JsonField("interactionOffset", offset));
     }
 
     private static JsonObject NotReady(string reason)
     {
-        return Readiness("notready", ("reason", new JsonObject() { ["type"] = "string", ["value"] = reason }));
+        return Readiness("notready", new JsonField("reason", new JsonObject() { ["type"] = "string", ["value"] = reason }));
     }
 
     private static IReadOnlyList<JsonObject> ScriptCalls(FakeSession session, string functionFragment)

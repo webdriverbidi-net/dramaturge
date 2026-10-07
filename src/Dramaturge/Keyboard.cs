@@ -36,7 +36,7 @@ public sealed class Keyboard
     {
         KeySourceActions source = new(KeySourceId);
         source.Actions.Add(new KeyDownAction(key));
-        return this.TraceAsync(Call("Key down", "{key}", "down", ("key", key)), cancellationToken, budget => this.PerformAsync(source, budget.CancellationToken));
+        return this.TraceAsync(Call("Key down", "{key}", "down", new TraceParameter("key", key)), cancellationToken, budget => this.PerformAsync(source, budget.CancellationToken));
     }
 
     /// <summary>
@@ -49,7 +49,7 @@ public sealed class Keyboard
     {
         KeySourceActions source = new(KeySourceId);
         source.Actions.Add(new KeyUpAction(key));
-        return this.TraceAsync(Call("Key up", "{key}", "up", ("key", key)), cancellationToken, budget => this.PerformAsync(source, budget.CancellationToken));
+        return this.TraceAsync(Call("Key up", "{key}", "up", new TraceParameter("key", key)), cancellationToken, budget => this.PerformAsync(source, budget.CancellationToken));
     }
 
     /// <summary>
@@ -61,7 +61,7 @@ public sealed class Keyboard
     /// <returns>A task that completes when the keys are released.</returns>
     public Task PressAsync(string key, KeyModifiers modifiers = KeyModifiers.None, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Press", "{key}", "press", ("key", key)), cancellationToken, budget => this.PerformAsync(new InputBuilder().AddKeyChordAction([.. ModifierKeyValues.For(modifiers), key]), budget.CancellationToken));
+        return this.TraceAsync(Call("Press", "{key}", "press", new TraceParameter("key", key)), cancellationToken, budget => this.PerformAsync(new InputBuilder().AddKeyChordAction([.. ModifierKeyValues.For(modifiers), key]), budget.CancellationToken));
     }
 
     /// <summary>
@@ -73,10 +73,10 @@ public sealed class Keyboard
     /// <returns>A task that completes when the text has been typed.</returns>
     public Task TypeAsync(string text, TimeSpan delay = default, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Type", "{text}", "type", ("text", text)), cancellationToken, budget => this.PerformAsync(new InputBuilder().AddSendKeysToActiveElementAction(text, delay), budget.CancellationToken));
+        return this.TraceAsync(Call("Type", "{text}", "type", new TraceParameter("text", text)), cancellationToken, budget => this.PerformAsync(new InputBuilder().AddSendKeysToActiveElementAction(text, delay), budget.CancellationToken));
     }
 
-    private static TracedCall Call(string title, string? subtitle, string method, params (string Name, object Value)[] parameters)
+    private static TracedCall Call(string title, string? subtitle, string method, params TraceParameter[] parameters)
     {
         return TraceRecording.Call("Keyboard", title, subtitle, method, parameters);
     }

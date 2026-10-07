@@ -99,7 +99,8 @@ public class PageInputIntegrationTests
         Assert.Same(onPage, again);
         Assert.Equal(inFrame.X + 30 + 5 + 7 + 20 + 3 + 4, onPage.X, 3);
         Assert.Equal(inFrame.Y + 40 + 5 + 7 + 25 + 3 + 4, onPage.Y, 3);
-        Assert.Equal((inFrame.Width, inFrame.Height), (onPage.Width, onPage.Height));
+        Assert.Equal(inFrame.Width, onPage.Width);
+        Assert.Equal(inFrame.Height, onPage.Height);
         Assert.True(await inner.EvaluateAsync<bool>("() => window.clicked", cancellationToken: token));
         Assert.Equal(onPage.Y, inDocument.Y, 3);
     }

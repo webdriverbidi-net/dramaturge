@@ -209,9 +209,9 @@ public sealed class TraceRecordingTests : IDisposable
             ["children"] = null,
         });
         Page popup = await popped.Task.WaitAsync(EventWait, TestContext.Current.CancellationToken);
-        await RaiseAndWaitAsync(session, popup, ConsoleEntry(popup.Id, "warn", "careful", Stack(("check", "https://example.com/app.js", 4, 2))));
+        await RaiseAndWaitAsync(session, popup, ConsoleEntry(popup.Id, "warn", "careful", Stack(new StackEntry("check", "https://example.com/app.js", 4, 2))));
         await RaiseAndWaitAsync(session, popup, ConsoleEntry(popup.Id, "log", "plain", null));
-        await RaiseAndWaitAsync(session, popup, Entry("javascript", "error", popup.Id, "boom", Stack(("", "https://example.com/app.js", 9, 0), ("load", "https://example.com/main.js", 1, 5))));
+        await RaiseAndWaitAsync(session, popup, Entry("javascript", "error", popup.Id, "boom", Stack(new StackEntry("", "https://example.com/app.js", 9, 0), new StackEntry("load", "https://example.com/main.js", 1, 5))));
         await RaiseAndWaitAsync(session, popup, Entry("javascript", "error", popup.Id, "bare", null));
         await popup.CloseAsync(TestContext.Current.CancellationToken);
         await recording.DisposeAsync();
@@ -360,12 +360,12 @@ public sealed class TraceRecordingTests : IDisposable
 
     private static Task<int> CountFromHelper(ElementLocator locator) => locator.CountAsync(TestContext.Current.CancellationToken);
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page)> OpenPageAsync()
+    private static async Task<OpenedPage> OpenPageAsync()
     {
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { NavigationTimeout = TimeSpan.FromMilliseconds(200), PollInterval = TimeSpan.FromMilliseconds(10) }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page);
+        return new OpenedPage(driver, session, page);
     }
 
     private static void AnswerReadiness(FakeSession session)
@@ -419,7 +419,7 @@ public sealed class TraceRecordingTests : IDisposable
         return entry;
     }
 
-    private static JsonObject Stack(params (string Function, string Url, int Line, int Column)[] frames)
+    private static JsonObject Stack(params StackEntry[] frames)
     {
         return new JsonObject()
         {
@@ -448,4 +448,6 @@ public sealed class TraceRecordingTests : IDisposable
     {
         public static Task<int> CountAsync(ElementLocator locator) => locator.CountAsync(TestContext.Current.CancellationToken);
     }
+
+    private sealed record StackEntry(string Function, string Url, int Line, int Column);
 }

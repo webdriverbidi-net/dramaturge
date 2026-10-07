@@ -32,8 +32,8 @@ public class CodeRecordingTests
         await SendAsync(driver, session, channel, page.Id, Press("#notes", "F12", ["Shift"]));
         await SendAsync(driver, session, channel, page.Id, Press("#notes", "😀"));
         await SendAsync(driver, session, channel, page.Id, Press("#notes", "ContextMenu"));
-        await SendAsync(driver, session, channel, page.Id, Action("select", "#size", ("values", new JsonArray("s", "l"))));
-        await SendAsync(driver, session, channel, page.Id, Action("setInputFiles", "#file", ("files", new JsonArray("a.txt", "b \"c\".txt"))));
+        await SendAsync(driver, session, channel, page.Id, Action("select", "#size", new JsonField("values", new JsonArray("s", "l"))));
+        await SendAsync(driver, session, channel, page.Id, Action("setInputFiles", "#file", new JsonField("files", new JsonArray("a.txt", "b \"c\".txt"))));
         await SendAsync(driver, session, channel, page.Id, Action("hover", "#go"));
         string code = await recording.StopAsync(TestContext.Current.CancellationToken);
 
@@ -303,11 +303,11 @@ public class CodeRecordingTests
         await SendAsync(driver, session, channel, page.Id, Fill("#name", "Ada"));
         await SendAsync(driver, session, channel, page.Id, Action("assertVisible", "#name"));
         await twoSettled.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-        await SendAsync(driver, session, channel, page.Id, Action("assertText", "#message", ("text", "Hello, \"Ada\"")));
-        await SendAsync(driver, session, channel, page.Id, Action("assertValue", "#name", ("value", "Ada")));
-        await SendAsync(driver, session, channel, page.Id, Action("assertChecked", "#agree", ("checked", true)));
-        await SendAsync(driver, session, channel, page.Id, Action("assertChecked", "#other", ("checked", false)));
-        await SendAsync(driver, session, channel, page.Id, Action("assertSnapshot", "#list", ("snapshot", "- list:\n  - listitem: Say \"\"\"hi\"\"\"\n\n  - listitem: Two\n")));
+        await SendAsync(driver, session, channel, page.Id, Action("assertText", "#message", new JsonField("text", "Hello, \"Ada\"")));
+        await SendAsync(driver, session, channel, page.Id, Action("assertValue", "#name", new JsonField("value", "Ada")));
+        await SendAsync(driver, session, channel, page.Id, Action("assertChecked", "#agree", new JsonField("checked", true)));
+        await SendAsync(driver, session, channel, page.Id, Action("assertChecked", "#other", new JsonField("checked", false)));
+        await SendAsync(driver, session, channel, page.Id, Action("assertSnapshot", "#list", new JsonField("snapshot", "- list:\n  - listitem: Say \"\"\"hi\"\"\"\n\n  - listitem: Two\n")));
         string code = await recording.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(
@@ -345,7 +345,7 @@ public class CodeRecordingTests
         CodeRecording recording = await page.Browser.RecordCodeAsync(new CodeRecordingOptions() { Target = CodeTarget.NUnit }, TestContext.Current.CancellationToken);
         string channel = await GetChannelAsync(session);
 
-        await SendAsync(driver, session, channel, page.Id, Action("assertSnapshot", "#list", ("snapshot", "- list:\n  - listitem: One")));
+        await SendAsync(driver, session, channel, page.Id, Action("assertSnapshot", "#list", new JsonField("snapshot", "- list:\n  - listitem: One")));
         string code = await recording.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.Contains(
@@ -478,13 +478,13 @@ public class CodeRecordingTests
         Assert.Contains($"Stopping the code recording in browsing context {page.Id} failed", messages[2]);
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page)> OpenPageAsync(string testIdAttribute = "data-testid")
+    private static async Task<OpenedPage> OpenPageAsync(string testIdAttribute = "data-testid")
     {
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { NavigationTimeout = TimeSpan.FromSeconds(5), TestIdAttribute = testIdAttribute }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
         session.RemoteEnd.AnswerWith("script.callFunction", ProtocolJson.Success(new JsonObject() { ["type"] = "undefined" }));
-        return (driver, session, page);
+        return new OpenedPage(driver, session, page);
     }
 
     private static Task RaiseDomContentLoadedAsync(FakeSession session, string contextId)
@@ -498,7 +498,7 @@ public class CodeRecordingTests
         });
     }
 
-    private static JsonObject Action(string kind, string cssPath, params (string Name, JsonNode Value)[] details)
+    private static JsonObject Action(string kind, string cssPath, params JsonField[] details)
     {
         JsonObject action = new()
         {
@@ -516,16 +516,16 @@ public class CodeRecordingTests
 
     private static JsonObject Click(string cssPath, string button = "left", int clickCount = 1, string[]? modifiers = null)
     {
-        return Action("click", cssPath, ("button", button), ("clickCount", clickCount), ("modifiers", new JsonArray([.. (modifiers ?? []).Select(modifier => JsonValue.Create(modifier))])));
+        return Action("click", cssPath, new JsonField("button", button), new JsonField("clickCount", clickCount), new JsonField("modifiers", new JsonArray([.. (modifiers ?? []).Select(modifier => JsonValue.Create(modifier))])));
     }
 
     private static JsonObject Mode(string mode) => new() { ["kind"] = "mode", ["mode"] = mode };
 
-    private static JsonObject Fill(string cssPath, string value) => Action("fill", cssPath, ("value", value));
+    private static JsonObject Fill(string cssPath, string value) => Action("fill", cssPath, new JsonField("value", value));
 
     private static JsonObject Press(string cssPath, string key, string[]? modifiers = null)
     {
-        return Action("press", cssPath, ("key", key), ("modifiers", new JsonArray([.. (modifiers ?? []).Select(modifier => JsonValue.Create(modifier))])));
+        return Action("press", cssPath, new JsonField("key", key), new JsonField("modifiers", new JsonArray([.. (modifiers ?? []).Select(modifier => JsonValue.Create(modifier))])));
     }
 
     private static string[] Statements(string programCode)

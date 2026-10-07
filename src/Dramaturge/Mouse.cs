@@ -30,13 +30,13 @@ public sealed class Mouse
         this.page = page;
     }
 
-    private (double X, double Y) Position
+    private CssPoint Position
     {
         get
         {
             lock (this.lockObject)
             {
-                return (this.x, this.y);
+                return new CssPoint(this.x, this.y);
             }
         }
     }
@@ -64,7 +64,7 @@ public sealed class Mouse
             source.Actions.Add(new PointerMoveAction() { X = fromX + ((x - fromX) * step / steps), Y = fromY + ((y - fromY) * step / steps) });
         }
 
-        return this.TraceAsync(Call("Mouse move", "{point}", "move", ("point", Describe(x, y))), cancellationToken, budget => this.PerformAsync(source, budget.CancellationToken));
+        return this.TraceAsync(Call("Mouse move", "{point}", "move", new TraceParameter("point", Describe(x, y))), cancellationToken, budget => this.PerformAsync(source, budget.CancellationToken));
     }
 
     /// <summary>
@@ -77,7 +77,7 @@ public sealed class Mouse
     {
         PointerSourceActions source = CreatePointerSource();
         source.Actions.Add(new PointerDownAction((ulong)button));
-        return this.TraceAsync(Call("Mouse down", "{button}", "down", ("button", button.ToString())), cancellationToken, budget => this.PerformAsync(source, budget.CancellationToken));
+        return this.TraceAsync(Call("Mouse down", "{button}", "down", new TraceParameter("button", button.ToString())), cancellationToken, budget => this.PerformAsync(source, budget.CancellationToken));
     }
 
     /// <summary>
@@ -90,7 +90,7 @@ public sealed class Mouse
     {
         PointerSourceActions source = CreatePointerSource();
         source.Actions.Add(new PointerUpAction((ulong)button));
-        return this.TraceAsync(Call("Mouse up", "{button}", "up", ("button", button.ToString())), cancellationToken, budget => this.PerformAsync(source, budget.CancellationToken));
+        return this.TraceAsync(Call("Mouse up", "{button}", "up", new TraceParameter("button", button.ToString())), cancellationToken, budget => this.PerformAsync(source, budget.CancellationToken));
     }
 
     /// <summary>
@@ -110,7 +110,7 @@ public sealed class Mouse
             throw new ArgumentOutOfRangeException(nameof(clickCount), clickCount, "The click count must be at least 1.");
         }
 
-        return this.TraceAsync(Call("Mouse click", "{point}", "click", ("point", Describe(x, y))), cancellationToken, budget => this.ClickCoreAsync(x, y, button, clickCount, budget.CancellationToken));
+        return this.TraceAsync(Call("Mouse click", "{point}", "click", new TraceParameter("point", Describe(x, y))), cancellationToken, budget => this.ClickCoreAsync(x, y, button, clickCount, budget.CancellationToken));
     }
 
     /// <summary>
@@ -123,7 +123,7 @@ public sealed class Mouse
     /// <returns>A task that completes when the double click has been performed.</returns>
     public Task DblClickAsync(double x, double y, PointerButton button = PointerButton.Left, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Mouse double click", "{point}", "dblclick", ("point", Describe(x, y))), cancellationToken, budget => this.ClickCoreAsync(x, y, button, 2, budget.CancellationToken));
+        return this.TraceAsync(Call("Mouse double click", "{point}", "dblclick", new TraceParameter("point", Describe(x, y))), cancellationToken, budget => this.ClickCoreAsync(x, y, button, 2, budget.CancellationToken));
     }
 
     /// <summary>
@@ -138,10 +138,10 @@ public sealed class Mouse
         (double atX, double atY) = this.Position;
         WheelSourceActions source = new(WheelSourceId);
         source.Actions.Add(new WheelScrollAction() { X = (long)atX, Y = (long)atY, DeltaX = deltaX, DeltaY = deltaY });
-        return this.TraceAsync(Call("Mouse wheel", "{delta}", "wheel", ("delta", Describe(deltaX, deltaY))), cancellationToken, budget => this.PerformAsync(source, budget.CancellationToken));
+        return this.TraceAsync(Call("Mouse wheel", "{delta}", "wheel", new TraceParameter("delta", Describe(deltaX, deltaY))), cancellationToken, budget => this.PerformAsync(source, budget.CancellationToken));
     }
 
-    private static TracedCall Call(string title, string? subtitle, string method, params (string Name, object Value)[] parameters)
+    private static TracedCall Call(string title, string? subtitle, string method, params TraceParameter[] parameters)
     {
         return TraceRecording.Call("Mouse", title, subtitle, method, parameters);
     }
@@ -157,11 +157,11 @@ public sealed class Mouse
     }
 
     // Records the mouse's new position, returning where it was.
-    private (double X, double Y) MoveTo(double x, double y)
+    private CssPoint MoveTo(double x, double y)
     {
         lock (this.lockObject)
         {
-            (double X, double Y) from = (this.x, this.y);
+            CssPoint from = new(this.x, this.y);
             this.x = x;
             this.y = y;
             return from;

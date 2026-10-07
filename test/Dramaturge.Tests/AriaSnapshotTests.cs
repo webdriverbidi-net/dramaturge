@@ -30,7 +30,7 @@ public class AriaSnapshotTests
     {
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider _) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
-        session.RemoteEnd.AnswerWith("script.callFunction", Snapshot(Node("heading", "Title", children: [], level: 1, reference: "e1"), "- heading \"Title\" [level=1] [ref=e1]", ("e1", "h1-1")));
+        session.RemoteEnd.AnswerWith("script.callFunction", Snapshot(Node("heading", "Title", children: [], level: 1, reference: "e1"), "- heading \"Title\" [level=1] [ref=e1]", new SnapshotReference("e1", "h1-1")));
 
         AriaSnapshot snapshot = await page.AriaSnapshotAsync(cancellationToken: TestContext.Current.CancellationToken);
 
@@ -64,12 +64,27 @@ public class AriaSnapshotTests
 
         Assert.Equal(AriaNode.FragmentRole, snapshot.Root.Role);
         AriaNode item = snapshot.Root.Children[0];
-        Assert.Equal(("treeitem", "Item", "e1"), (item.Role, item.Name, item.Ref));
-        Assert.Equal((ToggleState.On, false, true, 2, ToggleState.Mixed, true), (item.Checked, item.Disabled, item.Expanded, item.Level, item.Pressed, item.Selected));
+        Assert.Equal("treeitem", item.Role);
+        Assert.Equal("Item", item.Name);
+        Assert.Equal("e1", item.Ref);
+        Assert.Equal(ToggleState.On, item.Checked);
+        Assert.False(item.Disabled);
+        Assert.True(item.Expanded);
+        Assert.Equal(2, item.Level);
+        Assert.Equal(ToggleState.Mixed, item.Pressed);
+        Assert.True(item.Selected);
         AriaNode text = Assert.Single(item.Children);
-        Assert.Equal((AriaNode.TextRole, string.Empty, "Some text", null), (text.Role, text.Name, text.Text, text.Ref));
+        Assert.Equal(AriaNode.TextRole, text.Role);
+        Assert.Equal(string.Empty, text.Name);
+        Assert.Equal("Some text", text.Text);
+        Assert.Null(text.Ref);
         AriaNode checkbox = snapshot.Root.Children[1];
-        Assert.Equal((ToggleState.Off, ToggleState.Off, null, null, null, null), (checkbox.Checked, checkbox.Pressed, checkbox.Disabled, checkbox.Level, checkbox.Text, checkbox.Url));
+        Assert.Equal(ToggleState.Off, checkbox.Checked);
+        Assert.Equal(ToggleState.Off, checkbox.Pressed);
+        Assert.Null(checkbox.Disabled);
+        Assert.Null(checkbox.Level);
+        Assert.Null(checkbox.Text);
+        Assert.Null(checkbox.Url);
         Assert.Equal("/home", snapshot.Root.Children[2].Url);
         Assert.Equal("you@example.com", snapshot.Root.Children[3].Placeholder);
         Assert.False((bool?)session.RemoteEnd.CommandsFor("script.callFunction")[0]["params"]!["arguments"]![1]!["value"]);
@@ -85,8 +100,8 @@ public class AriaSnapshotTests
         string mainText = "- main [ref=e1]:\n  - iframe [ref=e2]\n  - iframe [ref=e3]";
         JsonObject childTree = Node("fragment", string.Empty, [Node("button", "OK", [], reference: "f1e1")]);
         session.RemoteEnd.AnswerWith("script.callFunction", parameters => (string?)parameters["target"]!["context"] == child.Id
-            ? SnapshotOf(childTree, "- button \"OK\" [ref=f1e1]", ("f1e1", "button-1"))
-            : SnapshotOf(mainTree, mainText, [Window(child.Id), Null()], ("e1", "main-1"), ("e2", "iframe-1"), ("e3", "iframe-2")));
+            ? SnapshotOf(childTree, "- button \"OK\" [ref=f1e1]", new SnapshotReference("f1e1", "button-1"))
+            : SnapshotOf(mainTree, mainText, [Window(child.Id), Null()], new SnapshotReference("e1", "main-1"), new SnapshotReference("e2", "iframe-1"), new SnapshotReference("e3", "iframe-2")));
 
         AriaSnapshot snapshot = await page.AriaSnapshotAsync(cancellationToken: TestContext.Current.CancellationToken);
 
@@ -176,7 +191,7 @@ public class AriaSnapshotTests
         bool[] connected = [true];
         session.RemoteEnd.AnswerWith("script.callFunction", parameters => ((string?)parameters["functionDeclaration"])!.Contains("isConnected")
             ? ProtocolJson.Success(connected[0] ? Element("button-1") : new JsonObject() { ["type"] = "null" })
-            : SnapshotOf(Node("fragment", string.Empty, [Node("button", "Go", [], reference: "e1")]), "- button \"Go\" [ref=e1]", ("e1", "button-1")));
+            : SnapshotOf(Node("fragment", string.Empty, [Node("button", "Go", [], reference: "e1")]), "- button \"Go\" [ref=e1]", new SnapshotReference("e1", "button-1")));
         AriaSnapshot snapshot = await page.AriaSnapshotAsync(cancellationToken: TestContext.Current.CancellationToken);
         ElementLocator button = snapshot.Locator("e1");
 
@@ -184,7 +199,8 @@ public class AriaSnapshotTests
         connected[0] = false;
         int afterRemoval = await button.CountAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal((1, 0), (whileConnected, afterRemoval));
+        Assert.Equal(1, whileConnected);
+        Assert.Equal(0, afterRemoval);
         Assert.Equal("ref e1", button.ToString());
         JsonObject check = session.RemoteEnd.CommandsFor("script.callFunction")[1]["params"]!.AsObject();
         Assert.Equal("(element) => element.isConnected ? element : null", (string?)check["functionDeclaration"]);
@@ -197,7 +213,7 @@ public class AriaSnapshotTests
     {
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider _) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
-        session.RemoteEnd.AnswerWith("script.callFunction", SnapshotOf(Node("fragment", string.Empty, [Node("button", "Go", [], reference: "e1")]), "- button \"Go\" [ref=e1]", ("e1", "button-1")));
+        session.RemoteEnd.AnswerWith("script.callFunction", SnapshotOf(Node("fragment", string.Empty, [Node("button", "Go", [], reference: "e1")]), "- button \"Go\" [ref=e1]", new SnapshotReference("e1", "button-1")));
         AriaSnapshot snapshot = await page.AriaSnapshotAsync(cancellationToken: TestContext.Current.CancellationToken);
         session.RemoteEnd.FailWith("script.callFunction", "no such node", "belongs to a different document");
 
@@ -348,22 +364,22 @@ public class AriaSnapshotTests
             }));
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page, FakeTimeProvider Time)> OpenPageAsync(TimeSpan? actionTimeout = null)
+    private static async Task<TimedPage> OpenPageAsync(TimeSpan? actionTimeout = null)
     {
         FakeTimeProvider time = new();
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         DramaturgeOptions options = new() { PollInterval = PollInterval, TimeProvider = time, ActionTimeout = actionTimeout ?? TimeSpan.FromSeconds(30) };
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, options, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page, time);
+        return new TimedPage(driver, session, page, time);
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page, FakeTimeProvider Time)> OpenPageWithFrameAsync()
+    private static async Task<TimedPage> OpenPageWithFrameAsync()
     {
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider time) = await OpenPageAsync();
         await session.CreateFrameAsync(page.Id);
         await driver.Session.StatusAsync(new WebDriverBiDi.Session.StatusCommandParameters(), cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page, time);
+        return new TimedPage(driver, session, page, time);
     }
 
     // A node of the tree the library returns as JSON; a string child is a run of text.
@@ -390,18 +406,18 @@ public class AriaSnapshotTests
         }
     }
 
-    private static JsonObject Snapshot(JsonObject node, string text, params (string Ref, string SharedId)[] references)
+    private static JsonObject Snapshot(JsonObject node, string text, params SnapshotReference[] references)
     {
         return SnapshotOf(Node("fragment", string.Empty, [node]), text, references);
     }
 
-    private static JsonObject SnapshotOf(JsonObject tree, string text, params (string Ref, string SharedId)[] references)
+    private static JsonObject SnapshotOf(JsonObject tree, string text, params SnapshotReference[] references)
     {
         return SnapshotOf(tree, text, [], references);
     }
 
     // The value the library's snapshot function returns, as the protocol serializes it.
-    private static JsonObject SnapshotOf(JsonObject tree, string text, JsonObject[] frames, params (string Ref, string SharedId)[] references)
+    private static JsonObject SnapshotOf(JsonObject tree, string text, JsonObject[] frames, params SnapshotReference[] references)
     {
         JsonArray properties =
         [
@@ -461,4 +477,6 @@ public class AriaSnapshotTests
 
         return await operation;
     }
+
+    private sealed record SnapshotReference(string Ref, string SharedId);
 }

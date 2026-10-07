@@ -144,20 +144,20 @@ internal static class CodeWriter
     public static string File(CodeTarget target, string browserName, string testIdAttribute, IReadOnlyList<string> statements, IEnumerable<string> namespaces)
     {
         bool customTestId = testIdAttribute != DefaultTestIdAttribute;
-        (string? package, string? framework, string? classAttribute, string? testAttribute) = target switch
+        TestFramework? testFramework = target switch
         {
-            CodeTarget.Xunit => ("Dramaturge.Xunit", "Xunit", null, "[Fact]"),
-            CodeTarget.NUnit => ("Dramaturge.NUnit", "NUnit.Framework", null, "[Test]"),
-            CodeTarget.MSTest => ("Dramaturge.MSTest", "Microsoft.VisualStudio.TestTools.UnitTesting", "[TestClass]", "[TestMethod]"),
-            CodeTarget.TUnit => ("Dramaturge.TUnit", "TUnit.Core", null, "[Test]"),
-            _ => ((string?)null, (string?)null, (string?)null, (string?)null),
+            CodeTarget.Xunit => new TestFramework("Dramaturge.Xunit", "Xunit", null, "[Fact]"),
+            CodeTarget.NUnit => new TestFramework("Dramaturge.NUnit", "NUnit.Framework", null, "[Test]"),
+            CodeTarget.MSTest => new TestFramework("Dramaturge.MSTest", "Microsoft.VisualStudio.TestTools.UnitTesting", "[TestClass]", "[TestMethod]"),
+            CodeTarget.TUnit => new TestFramework("Dramaturge.TUnit", "TUnit.Core", null, "[Test]"),
+            _ => null,
         };
         SortedSet<string> usings = new(StringComparer.Ordinal) { "Dramaturge" };
         usings.UnionWith(namespaces);
-        usings.UnionWith(package is null ? ["Dramaturge.Browsers"] : [package, framework!]);
+        usings.UnionWith(testFramework is null ? ["Dramaturge.Browsers"] : [testFramework.Package, testFramework.Namespace]);
 
         List<string> lines = [.. usings.Select(name => $"using {name};"), string.Empty];
-        if (package is null)
+        if (testFramework is null)
         {
             string options = customTestId ? $", new DramaturgeOptions() {{ TestIdAttribute = {Literal(testIdAttribute)} }}" : string.Empty;
             lines.Add($"await using BrowserGroup group = await BrowserGroup.LaunchAsync({Launcher(browserName)}.WithHeadlessOption(false){options});");
@@ -166,9 +166,9 @@ internal static class CodeWriter
         }
         else
         {
-            if (classAttribute is not null)
+            if (testFramework.ClassAttribute is not null)
             {
-                lines.Add(classAttribute);
+                lines.Add(testFramework.ClassAttribute);
             }
 
             lines.AddRange(["public class RecordedTests : PageTest", "{"]);
@@ -177,7 +177,7 @@ internal static class CodeWriter
                 lines.AddRange([$"    protected override DramaturgeOptions? GroupOptions => new() {{ TestIdAttribute = {Literal(testIdAttribute)} }};", string.Empty]);
             }
 
-            lines.AddRange([$"    {testAttribute}", "    public async Task Recorded()", "    {", "        Page page = this.Page;"]);
+            lines.AddRange([$"    {testFramework.TestAttribute}", "    public async Task Recorded()", "    {", "        Page page = this.Page;"]);
             lines.AddRange(Indent(statements, "        "));
             lines.AddRange(["    }", "}"]);
         }
@@ -200,4 +200,6 @@ internal static class CodeWriter
     {
         return statements.SelectMany(statement => statement.Split('\n')).Select(line => line.Length == 0 ? line : indent + line);
     }
+
+    private sealed record TestFramework(string Package, string Namespace, string? ClassAttribute, string TestAttribute);
 }

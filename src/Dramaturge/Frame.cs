@@ -228,7 +228,7 @@ public sealed class Frame
     /// <returns>The URL navigated to, after any redirects.</returns>
     public Task<string> NavigateAsync(string url, ReadinessState wait = ReadinessState.Complete, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Navigate", "{url}", "goto", ("url", url)), this.CreateBudget(timeout, cancellationToken), budget => this.NavigateCoreAsync(url, wait, budget));
+        return this.TraceAsync(Call("Navigate", "{url}", "goto", new TraceParameter("url", url)), this.CreateBudget(timeout, cancellationToken), budget => this.NavigateCoreAsync(url, wait, budget));
     }
 
     /// <summary>
@@ -256,7 +256,7 @@ public sealed class Frame
     /// <exception cref="WebDriverBiDiTimeoutException">Thrown when the document does not load in time.</exception>
     public Task WaitForLoadStateAsync(ReadinessState state = ReadinessState.Complete, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Wait for load state", "{state}", "waitForLoadState", ("state", state.ToString())), this.CreateBudget(timeout, cancellationToken), budget => this.WaitForLoadStateAsync(state, budget));
+        return this.TraceAsync(Call("Wait for load state", "{state}", "waitForLoadState", new TraceParameter("state", state.ToString())), this.CreateBudget(timeout, cancellationToken), budget => this.WaitForLoadStateAsync(state, budget));
     }
 
     /// <summary>
@@ -335,7 +335,7 @@ public sealed class Frame
     /// <exception cref="ScriptException">Thrown when the function throws.</exception>
     public Task<RemoteValue> EvaluateAsync(string function, IEnumerable<LocalValue>? arguments = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Evaluate", null, "evaluate", ("function", function)), this.CreateActionBudget(timeout, cancellationToken), budget => this.EvaluateCoreAsync(function, arguments, budget));
+        return this.TraceAsync(Call("Evaluate", null, "evaluate", new TraceParameter("function", function)), this.CreateActionBudget(timeout, cancellationToken), budget => this.EvaluateCoreAsync(function, arguments, budget));
     }
 
     /// <summary>
@@ -354,7 +354,7 @@ public sealed class Frame
     /// <exception cref="OverflowException">Thrown when a number is outside the range of the type.</exception>
     public Task<T> EvaluateAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>(string function, IEnumerable<LocalValue>? arguments = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Evaluate", null, "evaluate", ("function", function)), this.CreateActionBudget(timeout, cancellationToken), async budget => RemoteValueConverter.Convert<T>(await this.EvaluateCoreAsync(function, arguments, budget).ConfigureAwait(false)));
+        return this.TraceAsync(Call("Evaluate", null, "evaluate", new TraceParameter("function", function)), this.CreateActionBudget(timeout, cancellationToken), async budget => RemoteValueConverter.Convert<T>(await this.EvaluateCoreAsync(function, arguments, budget).ConfigureAwait(false)));
     }
 
     /// <summary>
@@ -370,7 +370,7 @@ public sealed class Frame
     /// <exception cref="WebDriverBiDiTimeoutException">Thrown when the function does not return a truthy value in time.</exception>
     public Task<RemoteValue> WaitForFunctionAsync(string function, IEnumerable<LocalValue>? arguments = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Wait for function", null, "waitForFunction", ("function", function)), this.CreateActionBudget(timeout, cancellationToken), budget => this.WaitForFunctionCoreAsync(function, arguments, budget));
+        return this.TraceAsync(Call("Wait for function", null, "waitForFunction", new TraceParameter("function", function)), this.CreateActionBudget(timeout, cancellationToken), budget => this.WaitForFunctionCoreAsync(function, arguments, budget));
     }
 
     /// <summary>
@@ -388,7 +388,7 @@ public sealed class Frame
     /// <exception cref="WebDriverBiDiTimeoutException">Thrown when the function does not return a truthy value in time.</exception>
     public Task<T> WaitForFunctionAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>(string function, IEnumerable<LocalValue>? arguments = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Wait for function", null, "waitForFunction", ("function", function)), this.CreateActionBudget(timeout, cancellationToken), async budget => RemoteValueConverter.Convert<T>(await this.WaitForFunctionCoreAsync(function, arguments, budget).ConfigureAwait(false)));
+        return this.TraceAsync(Call("Wait for function", null, "waitForFunction", new TraceParameter("function", function)), this.CreateActionBudget(timeout, cancellationToken), async budget => RemoteValueConverter.Convert<T>(await this.WaitForFunctionCoreAsync(function, arguments, budget).ConfigureAwait(false)));
     }
 
     /// <summary>
@@ -434,7 +434,7 @@ public sealed class Frame
     /// <param name="budget">The time the lookup may take.</param>
     /// <returns>The distances from the parent's viewport's left and top edges.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the frame's element is not found.</exception>
-    internal async Task<(double X, double Y)> GetOffsetInParentAsync(TimeBudget budget)
+    internal async Task<CssPoint> GetOffsetInParentAsync(TimeBudget budget)
     {
         Frame parent = this.ParentFrame!;
         LocateNodesCommandResult located = await this.Group.Driver.BrowsingContext.LocateNodesAsync(new LocateNodesCommandParameters(parent.Id, new CssLocator("iframe, frame")), budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
@@ -446,7 +446,7 @@ public sealed class Frame
                 RemoteValueList values = entry.As<CollectionRemoteValue>().Value!;
                 if (values[0] is WindowProxyRemoteValue window && window.Value.BrowsingContextId == this.Id)
                 {
-                    return (values[1].As<NumberRemoteValue>().Value, values[2].As<NumberRemoteValue>().Value);
+                    return new CssPoint(values[1].As<NumberRemoteValue>().Value, values[2].As<NumberRemoteValue>().Value);
                 }
             }
         }
@@ -459,11 +459,11 @@ public sealed class Frame
     /// </summary>
     /// <param name="budget">The time the read may take.</param>
     /// <returns>The distances scrolled right and down.</returns>
-    internal async Task<(double X, double Y)> GetScrollPositionAsync(TimeBudget budget)
+    internal async Task<CssPoint> GetScrollPositionAsync(TimeBudget budget)
     {
         RemoteValue scroll = await this.Group.Driver.Script.CallFunctionAsync(this.Id, "() => [window.scrollX, window.scrollY]", [], this.Group.Options.SandboxName, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
         RemoteValueList values = scroll.As<CollectionRemoteValue>().Value!;
-        return (values[0].As<NumberRemoteValue>().Value, values[1].As<NumberRemoteValue>().Value);
+        return new CssPoint(values[0].As<NumberRemoteValue>().Value, values[1].As<NumberRemoteValue>().Value);
     }
 
     /// <summary>
@@ -713,7 +713,7 @@ public sealed class Frame
         }
     }
 
-    private static TracedCall Call(string title, string? subtitle, string method, params (string Name, object Value)[] parameters)
+    private static TracedCall Call(string title, string? subtitle, string method, params TraceParameter[] parameters)
     {
         return TraceRecording.Call("Frame", title, subtitle, method, parameters);
     }
@@ -853,7 +853,7 @@ public sealed class Frame
 
     private Task<string> WaitForUrlAsync(Func<string, bool> matches, string awaited, ReadinessState wait, TimeSpan? timeout, CancellationToken cancellationToken)
     {
-        return this.TraceAsync(Call("Wait for URL", "{url}", "waitForURL", ("url", awaited)), this.CreateBudget(timeout, cancellationToken), budget => this.WaitForUrlCoreAsync(matches, awaited, wait, budget));
+        return this.TraceAsync(Call("Wait for URL", "{url}", "waitForURL", new TraceParameter("url", awaited)), this.CreateBudget(timeout, cancellationToken), budget => this.WaitForUrlCoreAsync(matches, awaited, wait, budget));
     }
 
     // A document whose state no event has reported is asked. An event that changes the frame's state while it is

@@ -60,7 +60,7 @@ public class NavigationWaitTests
     {
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider _) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
-        session.RemoteEnd.AnswerWith("script.callFunction", _ => new FakeResponse(ReadyState("loading"), [("browsingContext.load", NavigationEvent(page.Id))]));
+        session.RemoteEnd.AnswerWith("script.callFunction", _ => new FakeResponse(ReadyState("loading"), [new FakeEvent("browsingContext.load", NavigationEvent(page.Id))]));
 
         await page.WaitForLoadStateAsync(cancellationToken: TestContext.Current.CancellationToken);
     }
@@ -70,7 +70,7 @@ public class NavigationWaitTests
     {
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider _) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
-        session.RemoteEnd.AnswerWith("script.callFunction", _ => FakeResponse.Failure("unknown error", "Inspected target navigated or closed", ("browsingContext.load", NavigationEvent(page.Id))));
+        session.RemoteEnd.AnswerWith("script.callFunction", _ => FakeResponse.Failure("unknown error", "Inspected target navigated or closed", new FakeEvent("browsingContext.load", NavigationEvent(page.Id))));
 
         await page.WaitForLoadStateAsync(cancellationToken: TestContext.Current.CancellationToken);
         await page.NavigateAsync(PageUrl, cancellationToken: TestContext.Current.CancellationToken);
@@ -116,7 +116,7 @@ public class NavigationWaitTests
     {
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider time) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
-        session.RemoteEnd.AnswerWith("script.callFunction", _ => new FakeResponse(ReadyState("loading"), [("browsingContext.historyUpdated", HistoryEvent(page.Id, PageUrl))]));
+        session.RemoteEnd.AnswerWith("script.callFunction", _ => new FakeResponse(ReadyState("loading"), [new FakeEvent("browsingContext.historyUpdated", HistoryEvent(page.Id, PageUrl))]));
 
         Task unknown = page.WaitForLoadStateAsync(timeout: TimeSpan.FromSeconds(1), cancellationToken: TestContext.Current.CancellationToken);
         WebDriverBiDiTimeoutException neverReported = await Assert.ThrowsAsync<WebDriverBiDiTimeoutException>(() => DriveAsync(time, unknown));
@@ -181,7 +181,7 @@ public class NavigationWaitTests
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider _) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
         int[] traversals = [0];
-        session.RemoteEnd.AnswerWith("browsingContext.traverseHistory", parameters => new FakeResponse(new JsonObject(), [("browsingContext.historyUpdated", HistoryEvent((string)parameters["context"]!, $"{PageUrl}/{Interlocked.Increment(ref traversals[0])}"))]));
+        session.RemoteEnd.AnswerWith("browsingContext.traverseHistory", parameters => new FakeResponse(new JsonObject(), [new FakeEvent("browsingContext.historyUpdated", HistoryEvent((string)parameters["context"]!, $"{PageUrl}/{Interlocked.Increment(ref traversals[0])}"))]));
 
         string back = await page.GoBackAsync(ReadinessState.None, cancellationToken: TestContext.Current.CancellationToken);
         string forward = await page.GoForwardAsync(ReadinessState.None, cancellationToken: TestContext.Current.CancellationToken);
@@ -239,14 +239,14 @@ public class NavigationWaitTests
         Assert.Equal(child.Id, (string?)session.RemoteEnd.CommandsFor("browsingContext.reload").Single()["params"]!["context"]);
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page, FakeTimeProvider Time)> OpenPageAsync()
+    private static async Task<TimedPage> OpenPageAsync()
     {
         FakeTimeProvider time = new();
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { TimeProvider = time }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
         await page.NavigateAsync(PageUrl, cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page, time);
+        return new TimedPage(driver, session, page, time);
     }
 
     private static void AnswerReadyState(FakeSession session, string readyState)

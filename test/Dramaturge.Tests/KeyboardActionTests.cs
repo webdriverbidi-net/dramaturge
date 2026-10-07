@@ -228,13 +228,13 @@ public class KeyboardActionTests
         Assert.Null(new ActionOptions().Timeout);
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page, FakeTimeProvider Time)> OpenPageAsync()
+    private static async Task<TimedPage> OpenPageAsync()
     {
         FakeTimeProvider time = new();
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { PollInterval = PollInterval, TimeProvider = time }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page, time);
+        return new TimedPage(driver, session, page, time);
     }
 
     // Answers readiness checks and text selections each with the next result in turn (repeating the last), and
@@ -267,7 +267,7 @@ public class KeyboardActionTests
         return new JsonObject() { ["nodes"] = new JsonArray(new JsonObject() { ["type"] = "node", ["sharedId"] = "field-1", ["value"] = value }) };
     }
 
-    private static JsonObject Readiness(string status, params (string Name, JsonNode Value)[] extra)
+    private static JsonObject Readiness(string status, params JsonField[] extra)
     {
         JsonArray entries = [new JsonArray("status", new JsonObject() { ["type"] = "string", ["value"] = status })];
         foreach ((string name, JsonNode value) in extra)
@@ -280,7 +280,7 @@ public class KeyboardActionTests
 
     private static JsonObject NotReady(string reason)
     {
-        return Readiness("notready", ("reason", new JsonObject() { ["type"] = "string", ["value"] = reason }));
+        return Readiness("notready", new JsonField("reason", new JsonObject() { ["type"] = "string", ["value"] = reason }));
     }
 
     private static IReadOnlyList<JsonObject> ScriptCalls(FakeSession session, string functionFragment)

@@ -142,7 +142,7 @@ public class ScriptTests
         await using BiDiDriver ownedDriver = driver;
         int[] calls = [0];
         session.RemoteEnd.AnswerWith("script.callFunction", _ => Interlocked.Increment(ref calls[0]) == 1
-            ? FakeResponse.Failure("unknown error", "Inspected target navigated or closed", ("browsingContext.navigationStarted", new JsonObject() { ["context"] = page.Id, ["navigation"] = "navigation-2", ["timestamp"] = 1790000000000, ["url"] = "https://example.com/next" }))
+            ? FakeResponse.Failure("unknown error", "Inspected target navigated or closed", new FakeEvent("browsingContext.navigationStarted", new JsonObject() { ["context"] = page.Id, ["navigation"] = "navigation-2", ["timestamp"] = 1790000000000, ["url"] = "https://example.com/next" }))
             : new FakeResponse(ProtocolJson.Success(Boolean(true))));
 
         RemoteValue value = await DriveAsync(time, page.WaitForFunctionAsync("() => true", cancellationToken: TestContext.Current.CancellationToken));
@@ -156,7 +156,7 @@ public class ScriptTests
     {
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider time) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
-        session.RemoteEnd.AnswerWith("script.callFunction", _ => FakeResponse.Failure("unknown error", "gone", ("browsingContext.navigationStarted", new JsonObject() { ["context"] = page.Id, ["navigation"] = "navigation-2", ["timestamp"] = 1790000000000, ["url"] = "https://example.com/next" })));
+        session.RemoteEnd.AnswerWith("script.callFunction", _ => FakeResponse.Failure("unknown error", "gone", new FakeEvent("browsingContext.navigationStarted", new JsonObject() { ["context"] = page.Id, ["navigation"] = "navigation-2", ["timestamp"] = 1790000000000, ["url"] = "https://example.com/next" })));
 
         Task<RemoteValue> navigating = page.WaitForFunctionAsync("() => true", timeout: TimeSpan.FromSeconds(1), cancellationToken: TestContext.Current.CancellationToken);
         WebDriverBiDiTimeoutException navigated = await Assert.ThrowsAsync<WebDriverBiDiTimeoutException>(() => DriveAsync(time, navigating));
@@ -231,13 +231,13 @@ public class ScriptTests
         Assert.Equal("init-1", (string?)session.RemoteEnd.CommandsFor("script.removePreloadScript").Last()["params"]!["script"]);
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page, FakeTimeProvider Time)> OpenPageAsync()
+    private static async Task<TimedPage> OpenPageAsync()
     {
         FakeTimeProvider time = new();
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { PollInterval = PollInterval, TimeProvider = time }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page, time);
+        return new TimedPage(driver, session, page, time);
     }
 
     private static void AnswerInTurn(FakeSession session, params JsonObject[] results)

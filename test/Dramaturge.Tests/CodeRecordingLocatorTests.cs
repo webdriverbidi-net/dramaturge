@@ -150,12 +150,12 @@ public class CodeRecordingLocatorTests
         TaskCompletionSource settled = new(TaskCreationOptions.RunContinuationsAsynchronously);
         recording.OnStatement.AddObserver(_ => settled.TrySetResult());
 
-        await SendAsync(driver, session, channel, page.Id, Action("fill", Facts(), ("value", "A")), Target);
-        await SendAsync(driver, session, channel, page.Id, Action("fill", Facts(), ("value", "Ad")), Target);
+        await SendAsync(driver, session, channel, page.Id, Action("fill", Facts(), new JsonField("value", "A")), Target);
+        await SendAsync(driver, session, channel, page.Id, Action("fill", Facts(), new JsonField("value", "Ad")), Target);
         await SendAsync(driver, session, channel, page.Id, new JsonObject() { ["kind"] = "mode", ["mode"] = "record" });
         await settled.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         int lookups = session.RemoteEnd.CommandsFor("browsingContext.locateNodes").Count;
-        await SendAsync(driver, session, channel, second.Id, Action("fill", Facts(), ("value", "B")), Target);
+        await SendAsync(driver, session, channel, second.Id, Action("fill", Facts(), new JsonField("value", "B")), Target);
         string code = await recording.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(1, lookups);
@@ -245,22 +245,22 @@ public class CodeRecordingLocatorTests
     {
         CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
         string channel = await GetChannelAsync(session);
-        JsonObject click = Action("click", facts, ("button", "left"), ("clickCount", 1), ("modifiers", new JsonArray()));
+        JsonObject click = Action("click", facts, new JsonField("button", "left"), new JsonField("clickCount", 1), new JsonField("modifiers", new JsonArray()));
         click["ancestors"] = new JsonArray([.. (ancestors ?? []).Select(ancestor => (JsonNode)ancestor)]);
         await SendAsync(driver, session, channel, page.Id, click, elementIds ?? [Target]);
         string code = await recording.StopAsync(TestContext.Current.CancellationToken);
         return code.Split('\n').Single(line => line.Contains("ClickAsync"));
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page)> OpenPageAsync()
+    private static async Task<OpenedPage> OpenPageAsync()
     {
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { NavigationTimeout = TimeSpan.FromSeconds(5) }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page);
+        return new OpenedPage(driver, session, page);
     }
 
-    private static JsonObject Action(string kind, JsonObject facts, params (string Name, JsonNode Value)[] details)
+    private static JsonObject Action(string kind, JsonObject facts, params JsonField[] details)
     {
         JsonObject action = new() { ["kind"] = kind, ["target"] = facts, ["ancestors"] = new JsonArray() };
         foreach ((string name, JsonNode value) in details)

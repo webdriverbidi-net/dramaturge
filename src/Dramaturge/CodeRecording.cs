@@ -36,7 +36,7 @@ public sealed class CodeRecording : IAsyncDisposable
     private Task processing = Task.CompletedTask;
     private RecordedStep? pending;
     private string? subscriptionId;
-    private (Frame Frame, string? ElementId, string Code, ElementLocator Locator)? lastLocator;
+    private RememberedLocator? lastLocator;
     private string mode = "record";
     private int downloadCount;
     private bool isStopped;
@@ -333,12 +333,12 @@ public sealed class CodeRecording : IAsyncDisposable
             return;
         }
 
-        if (await this.DescribeFramesAsync(frame).ConfigureAwait(false) is not List<(Frame Frame, string Code)> frames)
+        if (await this.DescribeFramesAsync(frame).ConfigureAwait(false) is not List<FrameStep> frames)
         {
             return;
         }
 
-        (string Code, ElementLocator Locator) found = await this.FindLocatorAsync(frame, message, [.. data.Skip(1).Select(element => element.As<NodeRemoteValue>())]).ConfigureAwait(false);
+        GeneratedLocator found = await this.FindLocatorAsync(frame, message, [.. data.Skip(1).Select(element => element.As<NodeRemoteValue>())]).ConfigureAwait(false);
         List<RecordedStep> settled = [];
         LocatorPickedEventArgs? picked = null;
         lock (this.lockObject)
@@ -475,9 +475,9 @@ public sealed class CodeRecording : IAsyncDisposable
 
     // The frames from the page's main frame down to a frame that have no variable yet, each with its element's
     // locator in its parent, or null when a frame's element cannot be found, as in a shadow root.
-    private async Task<List<(Frame Frame, string Code)>?> DescribeFramesAsync(Frame frame)
+    private async Task<List<FrameStep>?> DescribeFramesAsync(Frame frame)
     {
-        List<(Frame Frame, string Code)> frames = [];
+        List<FrameStep> frames = [];
         for (Frame current = frame; current.ParentFrame is Frame parent; current = parent)
         {
             lock (this.lockObject)
@@ -494,7 +494,7 @@ public sealed class CodeRecording : IAsyncDisposable
                 return null;
             }
 
-            frames.Insert(0, (current, code));
+            frames.Insert(0, new FrameStep(current, code));
         }
 
         return frames;
@@ -533,7 +533,7 @@ public sealed class CodeRecording : IAsyncDisposable
 
     // Declares the frames without variables, top down, each after settling the pending statement, and gives the
     // variable of the frame acted in: its page's for a main frame.
-    private string DeclareFrames(Frame frame, List<(Frame Frame, string Code)> frames, string pageVariable, List<RecordedStep> settled)
+    private string DeclareFrames(Frame frame, List<FrameStep> frames, string pageVariable, List<RecordedStep> settled)
     {
         string Variable(Frame target) => target.ParentFrame is null ? pageVariable : this.frameVariables[target];
         foreach ((Frame declared, string code) in frames)
@@ -565,16 +565,16 @@ public sealed class CodeRecording : IAsyncDisposable
     }
 
     // The element's locator; consecutive actions on one element, such as the fills of typing, share the first's.
-    private async Task<(string Code, ElementLocator Locator)> FindLocatorAsync(Frame frame, JsonElement message, IReadOnlyList<NodeRemoteValue> elements)
+    private async Task<GeneratedLocator> FindLocatorAsync(Frame frame, JsonElement message, IReadOnlyList<NodeRemoteValue> elements)
     {
         if (this.lastLocator is { } last && last.Frame == frame && last.ElementId == elements[0].SharedId)
         {
-            return (last.Code, last.Locator);
+            return last.Generated;
         }
 
-        (string code, ElementLocator locator) = await LocatorGenerator.GenerateAsync(frame, message.GetProperty("target"), [.. message.GetProperty("ancestors").EnumerateArray()], elements, this.CreateBudget(CancellationToken.None)).ConfigureAwait(false);
-        this.lastLocator = (frame, elements[0].SharedId, code, locator);
-        return (code, locator);
+        GeneratedLocator generated = await LocatorGenerator.GenerateAsync(frame, message.GetProperty("target"), [.. message.GetProperty("ancestors").EnumerateArray()], elements, this.CreateBudget(CancellationToken.None)).ConfigureAwait(false);
+        this.lastLocator = new RememberedLocator(frame, elements[0].SharedId, generated);
+        return generated;
     }
 
     // The page's variable, declaring a page after the first, after settling the pending statement, when it has none.
@@ -678,4 +678,8 @@ public sealed class CodeRecording : IAsyncDisposable
             return this.HasEffect ? this : this with { Statement = $"{declaration}await {this.PageVariable}.{wait}(() => {this.Call});", HasEffect = true };
         }
     }
+
+    private sealed record RememberedLocator(Frame Frame, string? ElementId, GeneratedLocator Generated);
+
+    private sealed record FrameStep(Frame Frame, string Code);
 }

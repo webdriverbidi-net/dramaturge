@@ -93,11 +93,11 @@ public class CaptureTests
         Assert.Null(commands[1]["params"]!["viewport"]);
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page)> OpenPageAsync()
+    private static async Task<OpenedPage> OpenPageAsync()
     {
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, cancellationToken: TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page);
+        return new OpenedPage(driver, session, page);
     }
 }

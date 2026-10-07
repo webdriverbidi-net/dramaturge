@@ -91,12 +91,12 @@ public class CookieTests
         Assert.False(commands[1]["params"]!["filter"]!.AsObject().ContainsKey("domain"));
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Browser Browser)> OpenBrowserAsync()
+    private static async Task<OpenedBrowser> OpenBrowserAsync()
     {
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, cancellationToken: TestContext.Current.CancellationToken);
         Browser browser = await group.CreateBrowserAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, browser);
+        return new OpenedBrowser(driver, session, browser);
     }
 
     private static JsonObject Cookie(string name, JsonObject value, long? expiry)
@@ -109,4 +109,6 @@ public class CookieTests
 
         return cookie;
     }
+
+    private sealed record OpenedBrowser(BiDiDriver Driver, FakeSession Session, Browser Browser);
 }

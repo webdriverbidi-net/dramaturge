@@ -190,12 +190,12 @@ public sealed class TraceCaptureTests : IDisposable
 #line default
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page)> OpenPageAsync()
+    private static async Task<OpenedPage> OpenPageAsync()
     {
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { NavigationTimeout = TimeSpan.FromSeconds(10) }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page);
+        return new OpenedPage(driver, session, page);
     }
 
     // Answers readiness checks as ready, snapshots as a page with two frames, one of them gone, and every other script
@@ -208,7 +208,7 @@ public sealed class TraceCaptureTests : IDisposable
             string context = (string)parameters["target"]!["context"]!;
             if (function.Contains("isInteractionReady"))
             {
-                return ProtocolJson.Success(Object(("status", String("ready")), ("interactionOffset", Object(("x", Number(1)), ("y", Number(1))))));
+                return ProtocolJson.Success(Object(new JsonField("status", String("ready")), new JsonField("interactionOffset", Object(new JsonField("x", Number(1)), new JsonField("y", Number(1))))));
             }
 
             if (function.Contains("dispatchEvent"))
@@ -225,18 +225,18 @@ public sealed class TraceCaptureTests : IDisposable
             {
                 return failChild
                     ? ProtocolJson.Exception("TypeError: Acquiescence.DomSnapshotGenerator is not a constructor")
-                    : ProtocolJson.Success(Object(("json", String("""{"html":["HTML"],"viewport":{"width":300,"height":150},"url":"https://example.com/child","wallTime":1790000000001,"collectionTime":0.5}""")), ("frames", new JsonObject() { ["type"] = "array", ["value"] = new JsonArray() }), ("point", new JsonObject() { ["type"] = "null" })));
+                    : ProtocolJson.Success(Object(new JsonField("json", String("""{"html":["HTML"],"viewport":{"width":300,"height":150},"url":"https://example.com/child","wallTime":1790000000001,"collectionTime":0.5}""")), new JsonField("frames", new JsonObject() { ["type"] = "array", ["value"] = new JsonArray() }), new JsonField("point", new JsonObject() { ["type"] = "null" })));
             }
 
             bool targeted = parameters["arguments"]![0]!["sharedId"] is not null;
             return ProtocolJson.Success(Object(
-                ("json", String("""{"doctype":"html","html":["HTML",{},["BODY",{},["IFRAME",{"src":"/snapshot/@0"}],["IFRAME",{"src":"/snapshot/@1"}]]],"viewport":{"width":800,"height":600},"url":"https://example.com/","wallTime":1790000000000,"collectionTime":1.5}""")),
-                ("frames", new JsonObject() { ["type"] = "array", ["value"] = new JsonArray(new JsonObject() { ["type"] = "window", ["value"] = new JsonObject() { ["context"] = childId } }, new JsonObject() { ["type"] = "null" }) }),
-                ("point", targeted && parameters["arguments"]![1]!["type"]?.GetValue<string>() == "object" ? Object(("x", Number(11)), ("y", Number(21))) : new JsonObject() { ["type"] = "null" })));
+                new JsonField("json", String("""{"doctype":"html","html":["HTML",{},["BODY",{},["IFRAME",{"src":"/snapshot/@0"}],["IFRAME",{"src":"/snapshot/@1"}]]],"viewport":{"width":800,"height":600},"url":"https://example.com/","wallTime":1790000000000,"collectionTime":1.5}""")),
+                new JsonField("frames", new JsonObject() { ["type"] = "array", ["value"] = new JsonArray(new JsonObject() { ["type"] = "window", ["value"] = new JsonObject() { ["context"] = childId } }, new JsonObject() { ["type"] = "null" }) }),
+                new JsonField("point", targeted && parameters["arguments"]![1]!["type"]?.GetValue<string>() == "object" ? Object(new JsonField("x", Number(11)), new JsonField("y", Number(21))) : new JsonObject() { ["type"] = "null" })));
         });
     }
 
-    private static JsonObject Object(params (string Name, JsonObject Value)[] properties)
+    private static JsonObject Object(params JsonField[] properties)
     {
         return new JsonObject() { ["type"] = "object", ["value"] = new JsonArray([.. properties.Select(property => (JsonNode?)new JsonArray(property.Name, property.Value))]) };
     }

@@ -22,6 +22,8 @@ internal static class LocatorGenerator
 
     private static readonly HashSet<string> UnnamedRoles = ["generic", "none", "presentation"];
 
+    private static readonly AttributeQueryMethod[] AttributeQueryMethods = [new("placeholder", "GetByPlaceholder"), new("alt", "GetByAltText"), new("title", "GetByTitle")];
+
     /// <summary>
     /// Chooses a locator for an element.
     /// </summary>
@@ -31,7 +33,7 @@ internal static class LocatorGenerator
     /// <param name="elements">The element, then its ancestors, as the page sent them.</param>
     /// <param name="budget">The time resolving the candidates may take.</param>
     /// <returns>The locator, and its C# after the frame's variable, such as <c>GetByRole("button", "Save")</c>.</returns>
-    public static async Task<(string Code, ElementLocator Locator)> GenerateAsync(Frame frame, JsonElement target, IReadOnlyList<JsonElement> ancestors, IReadOnlyList<NodeRemoteValue> elements, TimeBudget budget)
+    public static async Task<GeneratedLocator> GenerateAsync(Frame frame, JsonElement target, IReadOnlyList<JsonElement> ancestors, IReadOnlyList<NodeRemoteValue> elements, TimeBudget budget)
     {
         string? targetId = elements[0].SharedId;
         List<Candidate> candidates = [.. TargetCandidates(target)];
@@ -43,12 +45,13 @@ internal static class LocatorGenerator
             List<string?> matches = await ResolveAsync(locator, budget).ConfigureAwait(false);
             if (matches.Count == 1 && matches[0] == targetId)
             {
-                return (candidate.Code, locator);
+                return new GeneratedLocator(candidate.Code, locator);
             }
 
             if (containing is null && matches.Contains(targetId))
             {
-                (containing, index) = (candidate, matches.IndexOf(targetId));
+                containing = candidate;
+                index = matches.IndexOf(targetId);
             }
         }
 
@@ -60,7 +63,7 @@ internal static class LocatorGenerator
             Candidate path = Css(target.GetProperty("cssPath").GetString()!);
             List<string?> found = candidates.Count == 0 ? [] : await ResolveAsync(path.OnFrame(frame), budget).ConfigureAwait(false);
             Candidate chosen = candidates.Count == 0 || (found.Count == 1 && found[0] == targetId) ? path : candidates[0];
-            return (chosen.Code, chosen.OnFrame(frame));
+            return new GeneratedLocator(chosen.Code, chosen.OnFrame(frame));
         }
 
         for (int i = 0; i < ancestors.Count && i + 1 < elements.Count; i++)
@@ -76,12 +79,12 @@ internal static class LocatorGenerator
                 List<string?> matches = await ResolveAsync(locator, budget).ConfigureAwait(false);
                 if (matches.Count == 1 && matches[0] == targetId)
                 {
-                    return ($"{scopeCode}.{candidate.Code}", locator);
+                    return new GeneratedLocator($"{scopeCode}.{candidate.Code}", locator);
                 }
             }
         }
 
-        return ($"{containing.Code}.Nth({index})", containing.OnFrame(frame).Nth(index));
+        return new GeneratedLocator($"{containing.Code}.Nth({index})", containing.OnFrame(frame).Nth(index));
     }
 
     private static IEnumerable<Candidate> TargetCandidates(JsonElement facts)
@@ -105,7 +108,7 @@ internal static class LocatorGenerator
             yield return Exact("GetByLabel", label, (frame, text) => frame.GetByLabel(text, true), (scope, text) => scope.GetByLabel(text, true));
         }
 
-        foreach ((string property, string method) in new[] { ("placeholder", "GetByPlaceholder"), ("alt", "GetByAltText"), ("title", "GetByTitle") })
+        foreach ((string property, string method) in AttributeQueryMethods)
         {
             if (Text(facts, property) is string value)
             {
@@ -151,7 +154,7 @@ internal static class LocatorGenerator
         }
     }
 
-    private static async Task<(string Code, ElementLocator Locator)?> FindAloneAsync(Frame frame, IEnumerable<Candidate> candidates, string? elementId, TimeBudget budget)
+    private static async Task<GeneratedLocator?> FindAloneAsync(Frame frame, IEnumerable<Candidate> candidates, string? elementId, TimeBudget budget)
     {
         foreach (Candidate candidate in candidates)
         {
@@ -159,7 +162,7 @@ internal static class LocatorGenerator
             List<string?> matches = await ResolveAsync(locator, budget).ConfigureAwait(false);
             if (matches.Count == 1 && matches[0] == elementId)
             {
-                return (candidate.Code, locator);
+                return new GeneratedLocator(candidate.Code, locator);
             }
         }
 
@@ -225,4 +228,6 @@ internal static class LocatorGenerator
 
     // A way to find the element: its C#, and its locator in a frame or, for the element's own candidates, within another locator.
     private sealed record Candidate(string Code, Func<Frame, ElementLocator> OnFrame, Func<ElementLocator, ElementLocator>? Within);
+
+    private sealed record AttributeQueryMethod(string Attribute, string Method);
 }

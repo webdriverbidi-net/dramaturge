@@ -83,13 +83,13 @@ public sealed class FakeSession
     /// Creates a driver connected to a fake remote end answered by a new fake session.
     /// </summary>
     /// <returns>The started driver and the session.</returns>
-    public static async Task<(BiDiDriver Driver, FakeSession Session)> ConnectAsync()
+    public static async Task<ConnectedSession> ConnectAsync()
     {
         FakeRemoteEnd remoteEnd = new();
         FakeSession session = new(remoteEnd);
         BiDiDriver driver = new(TimeSpan.FromSeconds(10), new Transport(remoteEnd));
         await driver.StartAsync("ws://fake.remote.end/session");
-        return (driver, session);
+        return new ConnectedSession(driver, session);
     }
 
     /// <summary>
@@ -218,16 +218,16 @@ public sealed class FakeSession
         return serialized;
     }
 
-    private static (string Method, JsonObject Parameters) CreatedEvent(FakeContext context)
+    private static FakeEvent CreatedEvent(FakeContext context)
     {
         JsonObject parameters = SerializeContext(context, null);
         parameters["hasPlannedNavigation"] = false;
-        return ("browsingContext.contextCreated", parameters);
+        return new FakeEvent("browsingContext.contextCreated", parameters);
     }
 
-    private static (string Method, JsonObject Parameters) DestroyedEvent(FakeContext context)
+    private static FakeEvent DestroyedEvent(FakeContext context)
     {
-        return ("browsingContext.contextDestroyed", SerializeContext(context, null));
+        return new FakeEvent("browsingContext.contextDestroyed", SerializeContext(context, null));
     }
 
     private JsonObject CreateUserContext()
@@ -278,7 +278,7 @@ public sealed class FakeSession
             ["timestamp"] = 1790000000000,
             ["url"] = context.Url,
         };
-        return new FakeResponse(new JsonObject() { ["navigation"] = navigation["navigation"]!.DeepClone(), ["url"] = context.Url }, [("browsingContext.navigationCommitted", navigation)]);
+        return new FakeResponse(new JsonObject() { ["navigation"] = navigation["navigation"]!.DeepClone(), ["url"] = context.Url }, [new FakeEvent("browsingContext.navigationCommitted", navigation)]);
     }
 
     private FakeContext SetUrl(string contextId, string? url)
@@ -303,7 +303,7 @@ public sealed class FakeSession
     // Called under the lock. A context's descendants are removed with it, and one event reports each top-level removal.
     private FakeResponse RemoveContexts(List<FakeContext> removed)
     {
-        List<(string Method, JsonObject Parameters)> events = [];
+        List<FakeEvent> events = [];
         foreach (FakeContext context in removed)
         {
             events.Add(DestroyedEvent(context));
@@ -345,4 +345,11 @@ public sealed class FakeSession
     {
         return $"{prefix}-{Interlocked.Increment(ref this.identifierCount)}";
     }
+
+    /// <summary>
+    /// A started driver and the fake session answering it.
+    /// </summary>
+    /// <param name="Driver">The started driver.</param>
+    /// <param name="Session">The session.</param>
+    public sealed record ConnectedSession(BiDiDriver Driver, FakeSession Session);
 }

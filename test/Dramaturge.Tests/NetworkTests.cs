@@ -378,13 +378,13 @@ public class NetworkTests
         Assert.Equal([interceptIds[0], interceptIds[1], interceptIds[3]], session.RemoteEnd.CommandsFor("network.removeIntercept").Select(command => (string)command["params"]!["intercept"]!));
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, BrowserGroup Group, Page Page, FakeTimeProvider Time)> OpenPageAsync()
+    private static async Task<GroupPage> OpenPageAsync()
     {
         FakeTimeProvider time = new();
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { TimeProvider = time }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, group, page, time);
+        return new GroupPage(driver, session, group, page, time);
     }
 
     private static string[] InterceptIds(FakeSession session)
@@ -469,4 +469,6 @@ public class NetworkTests
 
         return await operation;
     }
+
+    private sealed record GroupPage(BiDiDriver Driver, FakeSession Session, BrowserGroup Group, Page Page, FakeTimeProvider Time);
 }

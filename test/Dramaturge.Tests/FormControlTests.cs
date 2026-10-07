@@ -26,7 +26,7 @@ public class FormControlTests
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider time) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("box-1"));
-        AnswerScripts(session, (CheckedQuery, [Checked("unchecked"), Checked("checked")]), (Readiness, [NotReady("hidden"), Ready()]));
+        AnswerScripts(session, new ScriptAnswer(CheckedQuery, [Checked("unchecked"), Checked("checked")]), new ScriptAnswer(Readiness, [NotReady("hidden"), Ready()]));
 
         await DriveAsync(time, page.Locate(new CssLocator("input")).CheckAsync(new PointerActionOptions() { Modifiers = KeyModifiers.Shift }, TestContext.Current.CancellationToken));
 
@@ -50,7 +50,7 @@ public class FormControlTests
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider _) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("box-1"));
-        AnswerScripts(session, (CheckedQuery, [Checked(state)]));
+        AnswerScripts(session, new ScriptAnswer(CheckedQuery, [Checked(state)]));
 
         await page.Locate(new CssLocator("input")).SetCheckedAsync(isChecked, cancellationToken: TestContext.Current.CancellationToken);
 
@@ -64,7 +64,7 @@ public class FormControlTests
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider _) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("box-1"));
-        AnswerScripts(session, (CheckedQuery, [Checked("checked"), Checked("unchecked")]), (Readiness, [Ready()]));
+        AnswerScripts(session, new ScriptAnswer(CheckedQuery, [Checked("checked"), Checked("unchecked")]), new ScriptAnswer(Readiness, [Ready()]));
 
         await page.Locate(new CssLocator("input")).UncheckAsync(cancellationToken: TestContext.Current.CancellationToken);
 
@@ -77,7 +77,7 @@ public class FormControlTests
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider _) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("radio-1"));
-        AnswerScripts(session, (CheckedQuery, [Checked("checked", isRadio: true)]));
+        AnswerScripts(session, new ScriptAnswer(CheckedQuery, [Checked("checked", isRadio: true)]));
 
         InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => page.Locate(new CssLocator("input")).UncheckAsync(new PointerActionOptions(), TestContext.Current.CancellationToken));
 
@@ -93,7 +93,7 @@ public class FormControlTests
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider _) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("box-1"));
-        AnswerScripts(session, (CheckedQuery, [Checked(state)]), (Readiness, [Ready()]));
+        AnswerScripts(session, new ScriptAnswer(CheckedQuery, [Checked(state)]), new ScriptAnswer(Readiness, [Ready()]));
 
         InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => page.Locate(new CssLocator("input")).SetCheckedAsync(isChecked, new PointerActionOptions(), TestContext.Current.CancellationToken));
 
@@ -107,7 +107,7 @@ public class FormControlTests
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider _) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("button-1"));
-        AnswerScripts(session, (CheckedQuery, [Received("error:notcheckable")]));
+        AnswerScripts(session, new ScriptAnswer(CheckedQuery, [Received("error:notcheckable")]));
 
         InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => page.Locate(new CssLocator("button")).CheckAsync(cancellationToken: TestContext.Current.CancellationToken));
 
@@ -122,7 +122,7 @@ public class FormControlTests
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider time) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes(matches));
-        AnswerScripts(session, (CheckedQuery, [Received("error:notconnected")]));
+        AnswerScripts(session, new ScriptAnswer(CheckedQuery, [Received("error:notconnected")]));
 
         Task check = page.Locate(new CssLocator("input")).CheckAsync(new PointerActionOptions() { Timeout = TimeSpan.FromSeconds(1) }, TestContext.Current.CancellationToken);
         WebDriverBiDiTimeoutException exception = await Assert.ThrowsAsync<WebDriverBiDiTimeoutException>(() => DriveAsync(time, check));
@@ -138,8 +138,8 @@ public class FormControlTests
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("select-1"));
         AnswerScripts(
             session,
-            (StatesQuery, [Status("failure", ("missingState", "disabled")), Status("success")]),
-            (SelectOptions, [Status("missing", ("index", 1)), Status("disabled", ("index", 0)), Status("notconnected"), Selected("red", "blue", "green")]));
+            new ScriptAnswer(StatesQuery, [Status("failure", new StatusDetail("missingState", "disabled")), Status("success")]),
+            new ScriptAnswer(SelectOptions, [Status("missing", new StatusDetail("index", 1)), Status("disabled", new StatusDetail("index", 0)), Status("notconnected"), Selected("red", "blue", "green")]));
 
         IReadOnlyList<string> values = await DriveAsync(time, page.Locate(new CssLocator("select")).SelectOptionAsync([SelectOption.ByValue("red"), SelectOption.ByLabel("Blue"), SelectOption.ByIndex(2)], cancellationToken: TestContext.Current.CancellationToken));
 
@@ -165,11 +165,11 @@ public class FormControlTests
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes(matches));
         JsonObject stateResult = states switch
         {
-            "failure" => Status("failure", ("missingState", "hidden")),
-            "error" => Status("error", ("message", "notconnected")),
+            "failure" => Status("failure", new StatusDetail("missingState", "hidden")),
+            "error" => Status("error", new StatusDetail("message", "notconnected")),
             _ => Status("success"),
         };
-        AnswerScripts(session, (StatesQuery, [stateResult]), (SelectOptions, [Status(selection ?? "selected", ("index", 0))]));
+        AnswerScripts(session, new ScriptAnswer(StatesQuery, [stateResult]), new ScriptAnswer(SelectOptions, [Status(selection ?? "selected", new StatusDetail("index", 0))]));
 
         Task<IReadOnlyList<string>> select = page.Locate(new CssLocator("select")).SelectOptionAsync([SelectOption.ByLabel("Blue")], new ActionOptions() { Timeout = TimeSpan.FromSeconds(1) }, TestContext.Current.CancellationToken);
         WebDriverBiDiTimeoutException exception = await Assert.ThrowsAsync<WebDriverBiDiTimeoutException>(() => DriveAsync(time, select));
@@ -185,7 +185,7 @@ public class FormControlTests
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider _) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("select-1"));
-        AnswerScripts(session, (SelectOptions, [Status(status)]));
+        AnswerScripts(session, new ScriptAnswer(SelectOptions, [Status(status)]));
 
         InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => page.Locate(new CssLocator("select")).SelectOptionAsync([SelectOption.ByIndex(0), SelectOption.ByIndex(1)], new ActionOptions() { Force = true }, TestContext.Current.CancellationToken));
 
@@ -199,7 +199,7 @@ public class FormControlTests
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider _) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("select-1"));
-        AnswerScripts(session, (StatesQuery, [Status("success")]), (SelectOptions, [Selected()]));
+        AnswerScripts(session, new ScriptAnswer(StatesQuery, [Status("success")]), new ScriptAnswer(SelectOptions, [Selected()]));
 
         IReadOnlyList<string> values = await page.Locate(new CssLocator("select")).SelectOptionAsync([], cancellationToken: TestContext.Current.CancellationToken);
 
@@ -244,18 +244,18 @@ public class FormControlTests
         Assert.Empty(session.RemoteEnd.CommandsFor("input.setFiles"));
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page, FakeTimeProvider Time)> OpenPageAsync()
+    private static async Task<TimedPage> OpenPageAsync()
     {
         FakeTimeProvider time = new();
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { PollInterval = PollInterval, TimeProvider = time }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page, time);
+        return new TimedPage(driver, session, page, time);
     }
 
     // Answers each script whose function contains a fragment with that fragment's next result in turn (repeating
     // the last), and every other script, such as a scroll, with undefined.
-    private static void AnswerScripts(FakeSession session, params (string Fragment, JsonObject[] Results)[] answers)
+    private static void AnswerScripts(FakeSession session, params ScriptAnswer[] answers)
     {
         int[] calls = new int[answers.Length];
         session.RemoteEnd.AnswerWith("script.callFunction", parameters =>
@@ -274,7 +274,7 @@ public class FormControlTests
         });
     }
 
-    private static JsonObject Object(params (string Name, JsonNode Value)[] properties)
+    private static JsonObject Object(params JsonField[] properties)
     {
         return new JsonObject() { ["type"] = "object", ["value"] = new JsonArray([.. properties.Select(property => (JsonNode)new JsonArray(property.Name, property.Value))]) };
     }
@@ -286,33 +286,33 @@ public class FormControlTests
 
     private static JsonObject Checked(string received, bool isRadio = false)
     {
-        return Object(("matches", new JsonObject() { ["type"] = "boolean", ["value"] = received == "checked" }), ("received", String(received)), ("isRadio", new JsonObject() { ["type"] = "boolean", ["value"] = isRadio }));
+        return Object(new JsonField("matches", new JsonObject() { ["type"] = "boolean", ["value"] = received == "checked" }), new JsonField("received", String(received)), new JsonField("isRadio", new JsonObject() { ["type"] = "boolean", ["value"] = isRadio }));
     }
 
     private static JsonObject Received(string received)
     {
-        return Object(("matches", new JsonObject() { ["type"] = "boolean", ["value"] = false }), ("received", String(received)));
+        return Object(new JsonField("matches", new JsonObject() { ["type"] = "boolean", ["value"] = false }), new JsonField("received", String(received)));
     }
 
-    private static JsonObject Status(string status, params (string Name, object Value)[] extra)
+    private static JsonObject Status(string status, params StatusDetail[] extra)
     {
-        return Object([("status", String(status)), .. extra.Select(entry => (entry.Name, (JsonNode)(entry.Value is int number ? new JsonObject() { ["type"] = "number", ["value"] = number } : String((string)entry.Value))))]);
+        return Object([new JsonField("status", String(status)), .. extra.Select(entry => new JsonField(entry.Name, entry.Value is int number ? new JsonObject() { ["type"] = "number", ["value"] = number } : String((string)entry.Value)))]);
     }
 
     private static JsonObject Selected(params string[] values)
     {
-        return Object(("status", String("selected")), ("values", new JsonObject() { ["type"] = "array", ["value"] = new JsonArray([.. values.Select(value => (JsonNode)String(value))]) }));
+        return Object(new JsonField("status", String("selected")), new JsonField("values", new JsonObject() { ["type"] = "array", ["value"] = new JsonArray([.. values.Select(value => (JsonNode)String(value))]) }));
     }
 
     private static JsonObject Ready()
     {
-        JsonObject offset = Object(("x", new JsonObject() { ["type"] = "number", ["value"] = 0 }), ("y", new JsonObject() { ["type"] = "number", ["value"] = 0 }));
-        return Object(("status", String("ready")), ("interactionOffset", offset));
+        JsonObject offset = Object(new JsonField("x", new JsonObject() { ["type"] = "number", ["value"] = 0 }), new JsonField("y", new JsonObject() { ["type"] = "number", ["value"] = 0 }));
+        return Object(new JsonField("status", String("ready")), new JsonField("interactionOffset", offset));
     }
 
     private static JsonObject NotReady(string reason)
     {
-        return Object(("status", String("notready")), ("reason", String(reason)));
+        return Object(new JsonField("status", String("notready")), new JsonField("reason", String(reason)));
     }
 
     private static IReadOnlyList<JsonObject> ScriptCalls(FakeSession session, string functionFragment)
@@ -336,4 +336,8 @@ public class FormControlTests
         await DriveAsync(time, (Task)operation);
         return await operation;
     }
+
+    private sealed record StatusDetail(string Name, object Value);
+
+    private sealed record ScriptAnswer(string Fragment, JsonObject[] Results);
 }

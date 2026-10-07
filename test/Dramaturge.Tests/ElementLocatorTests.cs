@@ -331,12 +331,12 @@ public class ElementLocatorTests
         Assert.True(resource.Length > 0);
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, BrowserGroup Group)> ConnectAsync(TimeProvider? time = null)
+    private static async Task<ConnectedGroup> ConnectAsync(TimeProvider? time = null)
     {
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         DramaturgeOptions options = new() { PollInterval = PollInterval, TimeProvider = time ?? TimeProvider.System };
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, options, TestContext.Current.CancellationToken);
-        return (driver, session, group);
+        return new ConnectedGroup(driver, session, group);
     }
 
     // Answers each sending of a command with the next result, repeating the last.
@@ -367,4 +367,6 @@ public class ElementLocatorTests
     {
         public override string Type => "custom";
     }
+
+    private sealed record ConnectedGroup(BiDiDriver Driver, FakeSession Session, BrowserGroup Group);
 }

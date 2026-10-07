@@ -176,7 +176,7 @@ public sealed class TraceRecording : IAsyncDisposable
     /// <param name="method">The name of the method called.</param>
     /// <param name="parameters">The parameters, each a string or a list of strings.</param>
     /// <returns>The description.</returns>
-    internal static TracedCall Call(string className, string title, string? subtitle, string method, params (string Name, object Value)[] parameters)
+    internal static TracedCall Call(string className, string title, string? subtitle, string method, params TraceParameter[] parameters)
     {
         Dictionary<string, object> values = [];
         foreach ((string name, object value) in parameters)
@@ -246,10 +246,9 @@ public sealed class TraceRecording : IAsyncDisposable
             return;
         }
 
-        (double X, double Y)? point = await this.SnapshotAsync(frame.Page, trace.CallId, "action", frame, target, offset).ConfigureAwait(false);
-        if (point is (double x, double y))
+        if (await this.SnapshotAsync(frame.Page, trace.CallId, "action", frame, target, offset).ConfigureAwait(false) is CssPoint point)
         {
-            this.writer.WriteInput(trace.CallId, x, y);
+            this.writer.WriteInput(trace.CallId, point.X, point.Y);
         }
     }
 
@@ -282,10 +281,10 @@ public sealed class TraceRecording : IAsyncDisposable
     // A frame whose method was trimmed, or is not in a type, is taken for one of the library's own, and left out.
     [ExcludeFromCodeCoverage] // Only trimming, and languages other than C#, leave a frame without a method's type.
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Only the frame's method's name and declaring type are read; a frame whose method was trimmed is left out.")]
-    private static (Type Type, string Method) MethodOf(StackFrame frame)
+    private static FrameMethod MethodOf(StackFrame frame)
     {
         MethodBase? method = frame.GetMethod();
-        return method?.DeclaringType is Type type ? (type, method.Name) : (typeof(TraceRecording), string.Empty);
+        return method?.DeclaringType is Type type ? new FrameMethod(type, method.Name) : new FrameMethod(typeof(TraceRecording), string.Empty);
     }
 
     // Async methods and lambdas run in types or methods the compiler generates, nested in the method's type and named
@@ -410,9 +409,9 @@ public sealed class TraceRecording : IAsyncDisposable
 
     // Each frame of the page is taken in its own document; a frame that cannot be, such as one navigating away, is
     // left out. The point is the target's, when the target is in the page's main frame.
-    private async Task<(double X, double Y)?> SnapshotAsync(Page page, string callId, string phase, Frame? targetFrame, NodeRemoteValue? target, PointerOffset? offset)
+    private async Task<CssPoint?> SnapshotAsync(Page page, string callId, string phase, Frame? targetFrame, NodeRemoteValue? target, PointerOffset? offset)
     {
-        (double X, double Y)? point = null;
+        CssPoint? point = null;
         TimeBudget budget = new(this.browser.Group.Options.ActionTimeout, this.browser.Group.Options.TimeProvider, CancellationToken.None);
         foreach (Frame frame in page.Frames)
         {
@@ -427,7 +426,7 @@ public sealed class TraceRecording : IAsyncDisposable
                 this.writer.WriteFrameSnapshot(ReadSnapshot(result, phase, callId, page, frame));
                 if (Property(result, "point") is KeyValuePairCollectionRemoteValue acted)
                 {
-                    point = (Number(acted, "x"), Number(acted, "y"));
+                    point = new CssPoint(Number(acted, "x"), Number(acted, "y"));
                 }
             }
             catch (WebDriverBiDiException)
@@ -494,10 +493,12 @@ public sealed class TraceRecording : IAsyncDisposable
 
     // A request's page is the page of the frame that made it, while the frame is known, and its start is the time
     // since the recording started on the trace's clock.
-    private (string? PageId, double MonotonicTime) Place(NetworkRequest request)
+    private HarGenerator.TracePlacement Place(NetworkRequest request)
     {
         string? contextId = request.BrowsingContextId;
         string? pageId = contextId is null ? null : this.browser.Group.FindFrame(contextId)?.Page.Id ?? contextId;
-        return (pageId, this.startTime + (request.StartedDateTime.ToUniversalTime() - this.startWallTime).TotalMilliseconds);
+        return new HarGenerator.TracePlacement(pageId, this.startTime + (request.StartedDateTime.ToUniversalTime() - this.startWallTime).TotalMilliseconds);
     }
+
+    private readonly record struct FrameMethod(Type Type, string Method);
 }

@@ -53,7 +53,7 @@ public static partial class HarGenerator
     /// <param name="place">Gives a request's page and its start on the trace's clock.</param>
     /// <param name="addResource">Adds a body to the trace and returns its path there.</param>
     /// <returns>The lines.</returns>
-    internal static IReadOnlyList<string> GenerateTraceEntries(IEnumerable<NetworkRequest> requests, Func<NetworkRequest, (string? PageId, double MonotonicTime)> place, Func<byte[], string> addResource)
+    internal static IReadOnlyList<string> GenerateTraceEntries(IEnumerable<NetworkRequest> requests, Func<NetworkRequest, TracePlacement> place, Func<byte[], string> addResource)
     {
         List<string> lines = [];
         foreach (NetworkRequest request in requests.OrderBy(request => request.StartedDateTime).ThenBy(request => request.RedirectCount))
@@ -159,7 +159,7 @@ public static partial class HarGenerator
         if (request.RequestBody.Length > 0)
         {
             string mimeType = GetHeaderValue(request.RequestHeaders, "content-type") ?? "application/octet-stream";
-            (string text, bool isBase64) = request.IsRequestBodyBase64Encoded ? DecodeIfText(request.RequestBody) : (request.RequestBody, false);
+            (string text, bool isBase64) = request.IsRequestBodyBase64Encoded ? DecodeIfText(request.RequestBody) : new PostDataText(request.RequestBody, false);
             harRequest.PostData = new HarPostData
             {
                 MimeType = mimeType,
@@ -205,15 +205,15 @@ public static partial class HarGenerator
     }
 
     // A body the browser sent as base64 is written as text when it is text, and as base64 otherwise.
-    private static (string Text, bool IsBase64) DecodeIfText(string base64)
+    private static PostDataText DecodeIfText(string base64)
     {
         try
         {
-            return (StrictUtf8.GetString(Convert.FromBase64String(base64)), false);
+            return new PostDataText(StrictUtf8.GetString(Convert.FromBase64String(base64)), false);
         }
         catch (Exception ex) when (ex is FormatException || ex is ArgumentException)
         {
-            return (base64, true);
+            return new PostDataText(base64, true);
         }
     }
 
@@ -306,6 +306,15 @@ public static partial class HarGenerator
     {
         return headers.FirstOrDefault(header => string.Equals(header.Name, name, StringComparison.OrdinalIgnoreCase))?.Value.Value;
     }
+
+    /// <summary>
+    /// A request's page, and its start on a trace's clock.
+    /// </summary>
+    /// <param name="PageId">The ID of the request's page, or <see langword="null"/> when it is not known.</param>
+    /// <param name="MonotonicTime">The request's start, in milliseconds on the trace's clock.</param>
+    internal readonly record struct TracePlacement(string? PageId, double MonotonicTime);
+
+    private readonly record struct PostDataText(string Text, bool IsBase64);
 
     // HAR POCO types — internal, serialised only by this class.
     [JsonSourceGenerationOptions(WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

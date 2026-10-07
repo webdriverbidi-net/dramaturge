@@ -59,7 +59,7 @@ public sealed class Download
     {
         DramaturgeOptions options = this.Page.Browser.Group.Options;
         TimeBudget budget = new(timeout ?? options.NavigationTimeout, options.TimeProvider, cancellationToken);
-        TracedCall call = TraceRecording.Call("Download", "Wait for download to end", "{url}", "waitForEnd", ("url", this.Url));
+        TracedCall call = TraceRecording.Call("Download", "Wait for download to end", "{url}", "waitForEnd", new TraceParameter("url", this.Url));
         return TraceRecording.RunAsync(this.Page.Browser, this.Page, budget, call, actionBudget => actionBudget.WaitAsync(this.ended.Task, $"the download of {this.Url} to end"));
     }
 

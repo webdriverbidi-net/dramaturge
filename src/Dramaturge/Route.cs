@@ -69,7 +69,7 @@ public sealed class Route
     /// <exception cref="InvalidOperationException">Thrown when the request has been handled already.</exception>
     public Task FulfillAsync(ulong statusCode = 200, string? body = null, IReadOnlyDictionary<string, string>? headers = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Fulfill", "{status}", "fulfill", ("status", statusCode.ToString(CultureInfo.InvariantCulture))), cancellationToken, budget => this.FulfillAsync(statusCode, body is null ? null : BytesValue.FromString(body), headers, budget.CancellationToken));
+        return this.TraceAsync(Call("Fulfill", "{status}", "fulfill", new TraceParameter("status", statusCode.ToString(CultureInfo.InvariantCulture))), cancellationToken, budget => this.FulfillAsync(statusCode, body is null ? null : BytesValue.FromString(body), headers, budget.CancellationToken));
     }
 
     /// <summary>
@@ -83,7 +83,7 @@ public sealed class Route
     /// <exception cref="InvalidOperationException">Thrown when the request has been handled already.</exception>
     public Task FulfillAsync(ulong statusCode, byte[] body, IReadOnlyDictionary<string, string>? headers = null, CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Fulfill", "{status}", "fulfill", ("status", statusCode.ToString(CultureInfo.InvariantCulture))), cancellationToken, budget => this.FulfillAsync(statusCode, BytesValue.FromByteArray(body), headers, budget.CancellationToken));
+        return this.TraceAsync(Call("Fulfill", "{status}", "fulfill", new TraceParameter("status", statusCode.ToString(CultureInfo.InvariantCulture))), cancellationToken, budget => this.FulfillAsync(statusCode, BytesValue.FromByteArray(body), headers, budget.CancellationToken));
     }
 
     /// <summary>
@@ -134,7 +134,7 @@ public sealed class Route
         return this.Browser.Group.Driver.Network.ProvideResponseAsync(parameters);
     }
 
-    private static TracedCall Call(string title, string? subtitle, string method, params (string Name, object Value)[] parameters)
+    private static TracedCall Call(string title, string? subtitle, string method, params TraceParameter[] parameters)
     {
         return TraceRecording.Call("Route", title, subtitle, method, parameters);
     }

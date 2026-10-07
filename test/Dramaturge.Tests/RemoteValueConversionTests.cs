@@ -137,9 +137,9 @@ public class RemoteValueConversionTests
         await using BiDiDriver ownedDriver = driver;
 
         List<string> letters = await EvaluateAsync<List<string>>(session, page, new JsonObject() { ["type"] = "set", ["value"] = new JsonArray(String("a"), String("b")) });
-        Dictionary<string, double[]> fromObject = await EvaluateAsync<Dictionary<string, double[]>>(session, page, Object(("x", Array(Number(1.5)))));
-        Dictionary<string, int> fromMap = await EvaluateAsync<Dictionary<string, int>>(session, page, Map((String("k"), Number(3))));
-        InvalidCastException keyNotText = await Assert.ThrowsAsync<InvalidCastException>(() => EvaluateAsync<Dictionary<string, int>>(session, page, Map((Number(1), Number(3)))));
+        Dictionary<string, double[]> fromObject = await EvaluateAsync<Dictionary<string, double[]>>(session, page, Object(new JsonField("x", Array(Number(1.5)))));
+        Dictionary<string, int> fromMap = await EvaluateAsync<Dictionary<string, int>>(session, page, Map(new MapEntry(String("k"), Number(3))));
+        InvalidCastException keyNotText = await Assert.ThrowsAsync<InvalidCastException>(() => EvaluateAsync<Dictionary<string, int>>(session, page, Map(new MapEntry(Number(1), Number(3)))));
 
         Assert.Equal(["a", "b"], letters);
         Assert.Equal([1.5], fromObject["x"]);
@@ -154,12 +154,12 @@ public class RemoteValueConversionTests
         await using BiDiDriver ownedDriver = driver;
 
         object? tree = await EvaluateAsync<object?>(session, page, Object(
-            ("text", String("t")),
-            ("number", Number(1)),
-            ("flag", new JsonObject() { ["type"] = "boolean", ["value"] = false }),
-            ("big", BigInt("2")),
-            ("when", new JsonObject() { ["type"] = "date", ["value"] = "2026-09-30T12:00:00.000Z" }),
-            ("list", Array(Null(), Undefined()))));
+            new JsonField("text", String("t")),
+            new JsonField("number", Number(1)),
+            new JsonField("flag", new JsonObject() { ["type"] = "boolean", ["value"] = false }),
+            new JsonField("big", BigInt("2")),
+            new JsonField("when", new JsonObject() { ["type"] = "date", ["value"] = "2026-09-30T12:00:00.000Z" }),
+            new JsonField("list", Array(Null(), Undefined()))));
 
         Dictionary<string, object?> dictionary = Assert.IsType<Dictionary<string, object?>>(tree);
         Assert.Equal("t", dictionary["text"]);
@@ -182,12 +182,12 @@ public class RemoteValueConversionTests
         Assert.Equal(2, nodes.Length);
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page)> OpenPageAsync()
+    private static async Task<OpenedPage> OpenPageAsync()
     {
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, cancellationToken: TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page);
+        return new OpenedPage(driver, session, page);
     }
 
     private static Task<T> EvaluateAsync<T>(FakeSession session, Page page, JsonObject result)
@@ -212,7 +212,9 @@ public class RemoteValueConversionTests
 
     private static JsonObject Array(params JsonObject[] items) => new() { ["type"] = "array", ["value"] = new JsonArray([.. items]) };
 
-    private static JsonObject Object(params (string Key, JsonObject Value)[] entries) => new() { ["type"] = "object", ["value"] = new JsonArray([.. entries.Select(entry => (JsonNode)new JsonArray(entry.Key, entry.Value))]) };
+    private static JsonObject Object(params JsonField[] entries) => new() { ["type"] = "object", ["value"] = new JsonArray([.. entries.Select(entry => (JsonNode)new JsonArray(entry.Name, entry.Value))]) };
 
-    private static JsonObject Map(params (JsonObject Key, JsonObject Value)[] entries) => new() { ["type"] = "map", ["value"] = new JsonArray([.. entries.Select(entry => (JsonNode)new JsonArray(entry.Key, entry.Value))]) };
+    private static JsonObject Map(params MapEntry[] entries) => new() { ["type"] = "map", ["value"] = new JsonArray([.. entries.Select(entry => (JsonNode)new JsonArray(entry.Key, entry.Value))]) };
+
+    private sealed record MapEntry(JsonObject Key, JsonObject Value);
 }

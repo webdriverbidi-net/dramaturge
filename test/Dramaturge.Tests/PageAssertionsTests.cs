@@ -109,7 +109,7 @@ public class PageAssertionsTests
         await using BiDiDriver ownedDriver = driver;
         int[] calls = [0];
         session.RemoteEnd.AnswerWith("script.callFunction", _ => Interlocked.Increment(ref calls[0]) == 1
-            ? FakeResponse.Failure("unknown error", "Inspected target navigated or closed", ("browsingContext.navigationStarted", NavigationStarted(page.Id)))
+            ? FakeResponse.Failure("unknown error", "Inspected target navigated or closed", new FakeEvent("browsingContext.navigationStarted", NavigationStarted(page.Id)))
             : new FakeResponse(ProtocolJson.Success(String("Home"))));
 
         await DriveAsync(time, Expect(page).ToHaveTitleAsync("Home", cancellationToken: TestContext.Current.CancellationToken));
@@ -122,7 +122,7 @@ public class PageAssertionsTests
     {
         (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider time) = await OpenPageAsync();
         await using BiDiDriver ownedDriver = driver;
-        session.RemoteEnd.AnswerWith("script.callFunction", _ => FakeResponse.Failure("unknown error", "gone", ("browsingContext.navigationStarted", NavigationStarted(page.Id))));
+        session.RemoteEnd.AnswerWith("script.callFunction", _ => FakeResponse.Failure("unknown error", "gone", new FakeEvent("browsingContext.navigationStarted", NavigationStarted(page.Id))));
 
         ExpectationFailedException exception = await Assert.ThrowsAsync<ExpectationFailedException>(() => DriveAsync(time, Expect(page).ToHaveTitleAsync("Home", timeout: Timeout, cancellationToken: TestContext.Current.CancellationToken)));
 
@@ -153,14 +153,14 @@ public class PageAssertionsTests
         await Assert.ThrowsAsync<WebDriverBiDiCommandException>(() => Expect(page).ToHaveTitleAsync("Home", cancellationToken: TestContext.Current.CancellationToken));
     }
 
-    private static async Task<(BiDiDriver Driver, FakeSession Session, Page Page, FakeTimeProvider Time)> OpenPageAsync()
+    private static async Task<TimedPage> OpenPageAsync()
     {
         FakeTimeProvider time = new();
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
         BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { PollInterval = PollInterval, TimeProvider = time }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
         await page.NavigateAsync(PageUrl, cancellationToken: TestContext.Current.CancellationToken);
-        return (driver, session, page, time);
+        return new TimedPage(driver, session, page, time);
     }
 
     private static JsonObject NavigationStarted(string contextId)
