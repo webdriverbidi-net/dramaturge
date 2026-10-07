@@ -1,9 +1,32 @@
 version: 2
 updates:
+  # Everything but the packages: tests, samples, docs, and local tools stay on the
+  # latest versions, so CI runs the test frameworks' newest releases. MSTest's
+  # adapter and framework must share a version, so they move together.
   - package-ecosystem: "nuget"
     directory: "/"
+    exclude-paths:
+      - "src/**"
     schedule:
       interval: "weekly"
+    groups:
+      mstest:
+        patterns:
+          - "MSTest*"
+
+  # The packages. A package's reference to its test framework is the oldest
+  # version it supports (docs/articles/test-frameworks.md), so it changes only
+  # by decision, never by update.
+  - package-ecosystem: "nuget"
+    directories:
+      - "/src/*"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "xunit.v3.extensibility.core"
+      - dependency-name: "NUnit"
+      - dependency-name: "MSTest.TestFramework"
+      - dependency-name: "TUnit.Core"
 
   # GitHub Actions are pinned to commit SHAs (with a "# vX" comment naming the
   # version). Dependabot uses that comment to track the current version and
