@@ -107,11 +107,11 @@ public class ChromeLauncher : BrowserLauncher, IPipeServerProcessProvider
     public Process? PipeServerProcess => this.browserProcess;
 
     /// <summary>
-    /// Gets a value indicating whether the process runs as root on Linux, where Chrome's sandbox is
-    /// unavailable and Chrome refuses to start without the --no-sandbox argument.
+    /// Gets the --no-sandbox argument on Linux when Chrome's sandbox is unavailable and Chrome refuses to
+    /// start without it: when running as root, or when AppArmor restricts unprivileged user namespaces.
     /// </summary>
     [ExcludeFromCodeCoverage] // Depends on the operating system and user the tests run as.
-    internal static IEnumerable<string> SandboxArguments => RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && Environment.UserName == "root" ? ["--no-sandbox"] : [];
+    internal static IEnumerable<string> SandboxArguments => RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && (Environment.UserName == "root" || AreUserNamespacesRestricted()) ? ["--no-sandbox"] : [];
 
     /// <summary>
     /// Gets an observable event that notifies when a log message is emitted by the browser launcher.
@@ -349,6 +349,24 @@ public class ChromeLauncher : BrowserLauncher, IPipeServerProcessProvider
     protected override int GetProcessId()
     {
         return this.browserProcess!.Id;
+    }
+
+    [ExcludeFromCodeCoverage] // Depends on the operating system the tests run on.
+    private static bool AreUserNamespacesRestricted()
+    {
+        const string RestrictionSetting = "/proc/sys/kernel/apparmor_restrict_unprivileged_userns";
+        try
+        {
+            return File.Exists(RestrictionSetting) && File.ReadAllText(RestrictionSetting).Trim() == "1";
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     [ExcludeFromCodeCoverage] // Takes only the branch for the operating system it runs on.

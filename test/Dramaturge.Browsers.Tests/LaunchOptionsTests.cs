@@ -227,7 +227,7 @@ public class LaunchOptionsTests
     }
 
     [Fact]
-    public async Task HeadlessChromeIsSandboxedUnlessRunningAsRootOnLinux()
+    public async Task HeadlessChromeIsSandboxedUnlessTheSandboxIsUnavailable()
     {
         using FakeBrowserSetup fakeBrowser = new();
         await using BrowserLauncher launcher = fakeBrowser.Apply(BrowserLauncher.Configure(BrowserKind.Chrome))
@@ -240,7 +240,10 @@ public class LaunchOptionsTests
 
         string[] arguments = fakeBrowser.Launches.Single().Arguments;
         Assert.Contains("--headless=new", arguments);
-        Assert.Equal(OperatingSystem.IsLinux() && Environment.UserName == "root", arguments.Contains("--no-sandbox"));
+        const string RestrictionSetting = "/proc/sys/kernel/apparmor_restrict_unprivileged_userns";
+        bool sandboxUnavailable = OperatingSystem.IsLinux()
+            && (Environment.UserName == "root" || (File.Exists(RestrictionSetting) && File.ReadAllText(RestrictionSetting).Trim() == "1"));
+        Assert.Equal(sandboxUnavailable, arguments.Contains("--no-sandbox"));
     }
 
     [Fact]

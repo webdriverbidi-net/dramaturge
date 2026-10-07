@@ -39,7 +39,7 @@ Microsoft publishes Edge only as installers, so the package never downloads it: 
 On Linux:
 
 - A Firefox installed as a **Snap or Flatpak** (as Ubuntu's `/usr/bin/firefox` is) cannot read a profile in the temporary directory, so launching it without `WithUserDataDirectory` fails with an explanation. Use the downloaded Firefox, or a profile directory the sandbox can read.
-- Running as **root**, Chrome refuses to start with its sandbox enabled, so `--no-sandbox` is added for you.
+- Chrome refuses to start with its sandbox enabled when running as **root**, or when AppArmor restricts unprivileged user namespaces (the default from Ubuntu 23.10, including GitHub Actions' `ubuntu-latest`), so `--no-sandbox` is added for you. To keep the sandbox where it can be set up another way, pass `--no-sandbox` to `WithoutDefaultArguments`.
 
 ### From the Environment
 
