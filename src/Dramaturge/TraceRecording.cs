@@ -36,7 +36,7 @@ public sealed class TraceRecording : IAsyncDisposable
     private readonly NetworkTrafficMonitor monitor;
     private readonly TraceWriter writer = new();
     private readonly double startTime = TraceWriter.Now;
-    private readonly DateTime startWallTime = DateTime.UtcNow;
+    private readonly DateTimeOffset startWallTime;
     private readonly object lockObject = new();
     private readonly List<IDisposable> observers = [];
     private readonly List<Task> loadCaptures = [];
@@ -50,6 +50,7 @@ public sealed class TraceRecording : IAsyncDisposable
         this.options = options;
         this.Path = System.IO.Path.GetFullPath(path);
         this.monitor = monitor;
+        this.startWallTime = browser.Group.Options.TimeProvider.GetUtcNow();
     }
 
     /// <summary>
@@ -127,7 +128,7 @@ public sealed class TraceRecording : IAsyncDisposable
         TraceRecording recording = new(browser, path, options ?? new TraceRecordingOptions(), new NetworkTrafficMonitor(browser.Group.Driver, monitorOptions));
 
         // The trace starts with its context's options, before any action the browser records once it is claimed.
-        recording.writer.WriteContextOptions(browser.Group.BrowserName, recording.options.Title, browser.Group.Options.TestIdAttribute);
+        recording.writer.WriteContextOptions(browser.Group.BrowserName, recording.options.Title, browser.Group.Options.TestIdAttribute, recording.startWallTime);
         if (!browser.ClaimTrace(recording))
         {
             throw new InvalidOperationException("The browser is already recording a trace.");
@@ -497,7 +498,7 @@ public sealed class TraceRecording : IAsyncDisposable
     {
         string? contextId = request.BrowsingContextId;
         string? pageId = contextId is null ? null : this.browser.Group.FindFrame(contextId)?.Page.Id ?? contextId;
-        return new HarGenerator.TracePlacement(pageId, this.startTime + (request.StartedDateTime.ToUniversalTime() - this.startWallTime).TotalMilliseconds);
+        return new HarGenerator.TracePlacement(pageId, this.startTime + (request.StartedDateTime.ToUniversalTime() - this.startWallTime.UtcDateTime).TotalMilliseconds);
     }
 
     private readonly record struct FrameMethod(Type Type, string Method);

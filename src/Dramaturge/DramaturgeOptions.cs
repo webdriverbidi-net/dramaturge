@@ -61,7 +61,7 @@ public sealed class DramaturgeOptions
     }
 
     /// <summary>
-    /// Gets the <see cref="System.TimeProvider"/> that times waits and timeouts.
+    /// Gets the <see cref="System.TimeProvider"/> that times waits and timeouts, and dates traces.
     /// </summary>
     /// <exception cref="ArgumentNullException">Thrown when set to <see langword="null"/>.</exception>
     public TimeProvider TimeProvider

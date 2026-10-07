@@ -157,7 +157,7 @@ public class ElementLocatorTests
     [Fact]
     public async Task ElementRemovedWhileCheckedIsLookedUpAgain()
     {
-        FakeTimeProvider time = new();
+        PollingClock time = new();
         (BiDiDriver driver, FakeSession session, BrowserGroup group) = await ConnectAsync(time);
         await using BiDiDriver ownedDriver = driver;
         await using BrowserGroup ownedGroup = group;
@@ -165,8 +165,9 @@ public class ElementLocatorTests
         session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes(1));
         session.RemoteEnd.FailWith("script.callFunction", "no such node", "The node was removed");
 
+        time.ForgetTimers();
         Task wait = page.Locate(new CssLocator("#flaky")).WaitForAsync(timeout: TimeSpan.FromSeconds(1), cancellationToken: TestContext.Current.CancellationToken);
-        WebDriverBiDiTimeoutException exception = await Assert.ThrowsAsync<WebDriverBiDiTimeoutException>(() => DriveAsync(time, wait));
+        WebDriverBiDiTimeoutException exception = await Assert.ThrowsAsync<WebDriverBiDiTimeoutException>(() => time.DriveBetweenPollsAsync(wait, PollInterval));
 
         Assert.EndsWith("the element was removed while it was checked.", exception.Message);
         Assert.True(session.RemoteEnd.CommandsFor("browsingContext.locateNodes").Count > 1);
@@ -369,4 +370,36 @@ public class ElementLocatorTests
     }
 
     private sealed record ConnectedGroup(BiDiDriver Driver, FakeSession Session, BrowserGroup Group);
+
+    // A fake clock that moves only when the code under test starts a timer, which in a poll is only its wait between
+    // attempts, so how many attempts fit in a budget does not depend on how fast the machine runs them.
+    private sealed class PollingClock : FakeTimeProvider
+    {
+        private readonly SemaphoreSlim timersStarted = new(0);
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            ITimer timer = base.CreateTimer(callback, state, dueTime, period);
+            this.timersStarted.Release();
+            return timer;
+        }
+
+        public void ForgetTimers()
+        {
+            while (this.timersStarted.Wait(0))
+            {
+            }
+        }
+
+        public async Task DriveBetweenPollsAsync(Task operation, TimeSpan pollInterval)
+        {
+            while (!operation.IsCompleted)
+            {
+                await Task.WhenAny(operation, this.timersStarted.WaitAsync(TestContext.Current.CancellationToken));
+                this.Advance(pollInterval);
+            }
+
+            await operation;
+        }
+    }
 }

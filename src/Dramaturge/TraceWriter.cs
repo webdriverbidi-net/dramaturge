@@ -40,7 +40,8 @@ internal sealed class TraceWriter
     /// <param name="browserName">The name of the browser recorded.</param>
     /// <param name="title">The trace's title, or <see langword="null"/>.</param>
     /// <param name="testIdAttribute">The attribute test IDs are read from.</param>
-    public void WriteContextOptions(string browserName, string? title, string testIdAttribute)
+    /// <param name="wallTime">The time the trace started.</param>
+    public void WriteContextOptions(string browserName, string? title, string testIdAttribute, DateTimeOffset wallTime)
     {
         this.Write(writer =>
         {
@@ -49,7 +50,7 @@ internal sealed class TraceWriter
             writer.WriteString("origin", "library");
             writer.WriteString("browserName", browserName);
             writer.WriteString("platform", Platform());
-            writer.WriteNumber("wallTime", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            writer.WriteNumber("wallTime", wallTime.ToUnixTimeMilliseconds());
             writer.WriteNumber("monotonicTime", Now);
             if (title is not null)
             {

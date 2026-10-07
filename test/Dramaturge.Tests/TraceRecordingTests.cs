@@ -239,7 +239,8 @@ public sealed class TraceRecordingTests : IDisposable
     [Fact]
     public async Task NetworkTrafficIsRecordedWithBodiesInTheTrace()
     {
-        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        // The trace starts when the fake requests do, so their place on its clock does not depend on the machine's.
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync(new FixedWallClock(DateTimeOffset.FromUnixTimeMilliseconds(1_790_000_000_000)));
         await using BiDiDriver ownedDriver = driver;
         session.RemoteEnd.AnswerWith("network.getData", parameters => (string)parameters["request"]! == "request-1" ? Bytes("string", "<p>Hello</p>") : Bytes("base64", Convert.ToBase64String([0xFF, 0x00, 0x7F])));
         string path = Path.Combine(this.directory, "trace.zip");
@@ -360,10 +361,10 @@ public sealed class TraceRecordingTests : IDisposable
 
     private static Task<int> CountFromHelper(ElementLocator locator) => locator.CountAsync(TestContext.Current.CancellationToken);
 
-    private static async Task<OpenedPage> OpenPageAsync()
+    private static async Task<OpenedPage> OpenPageAsync(TimeProvider? time = null)
     {
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
-        BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { NavigationTimeout = TimeSpan.FromMilliseconds(200), PollInterval = TimeSpan.FromMilliseconds(10) }, TestContext.Current.CancellationToken);
+        BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { NavigationTimeout = TimeSpan.FromMilliseconds(200), PollInterval = TimeSpan.FromMilliseconds(10), TimeProvider = time ?? TimeProvider.System }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
         return new OpenedPage(driver, session, page);
     }
@@ -450,4 +451,10 @@ public sealed class TraceRecordingTests : IDisposable
     }
 
     private sealed record StackEntry(string Function, string Url, int Line, int Column);
+
+    // A clock whose wall time stands still; its timers and timestamps are the system's.
+    private sealed class FixedWallClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
 }
