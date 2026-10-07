@@ -366,7 +366,7 @@ public class ProcessEnvironmentLauncherTests
 
         BrowserLaunchException exception = await Assert.ThrowsAsync<BrowserLaunchException>(() => launcher.StartAsync(TestContext.Current.CancellationToken));
 
-        Assert.Contains($"Unable to start chromedriver from {driverPath}", exception.Message);
+        Assert.Contains($"Unable to start {(OperatingSystem.IsWindows() ? "chromedriver.exe" : "chromedriver")} from {driverPath}", exception.Message);
         Assert.False(launcher.IsRunning);
     }
 
@@ -476,7 +476,8 @@ public class ProcessEnvironmentLauncherTests
     {
         using FakeBrowserSetup fakeBrowser = new();
         using DriverOverride driverOverride = new(browser);
-        await using BrowserLauncher launcher = fakeBrowser.Apply(BrowserLauncher.Configure(browser)).LaunchUsingDriver().Build();
+        // Where Chrome's sandbox is unavailable, as on Ubuntu, --no-sandbox is a default argument.
+        await using BrowserLauncher launcher = fakeBrowser.Apply(BrowserLauncher.Configure(browser)).LaunchUsingDriver().WithoutDefaultArguments("--no-sandbox").Build();
         await launcher.StartAsync(TestContext.Current.CancellationToken);
 
         await launcher.LaunchBrowserAsync(TestContext.Current.CancellationToken);

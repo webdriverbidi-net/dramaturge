@@ -30,9 +30,10 @@ public sealed class TemporaryDirectory : IDisposable
         {
             Directory.Delete(this.Path, true);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
         {
-            // A file still held open by a killed process must not fail the test.
+            // A file still held open by a killed process must not fail the test; Windows reports an executable as
+            // unauthorized.
         }
     }
 }

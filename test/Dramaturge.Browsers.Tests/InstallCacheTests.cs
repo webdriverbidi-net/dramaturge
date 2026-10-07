@@ -268,11 +268,12 @@ public class InstallCacheTests
         DownloadServer server = await DownloadServer.StartAsync();
         Serve(server, "Stable", LatestVersion);
         BrowserDownloadOptions options = TestDownloadOptions.Create(server, cache, timeProvider: timeProvider);
-        string? installedPath = await DriverLocator.FindDriverAsync(BrowserKind.Chrome, BrowserReleaseChannel.Stable, BrowserVersion.Latest, FileLocationBehavior.UseSystemInstallLocation, downloadOptions: options, cancellationToken: TestContext.Current.CancellationToken);
+        string browserPath = UninstalledBrowserPath(cache);
+        string? installedPath = await DriverLocator.FindDriverAsync(BrowserKind.Chrome, BrowserReleaseChannel.Stable, BrowserVersion.Latest, FileLocationBehavior.UseCustomLocation, browserPath, options, TestContext.Current.CancellationToken);
         await server.DisposeAsync();
 
         timeProvider.Advance(TimeSpan.FromHours(25));
-        string? path = await DriverLocator.FindDriverAsync(BrowserKind.Chrome, BrowserReleaseChannel.Stable, BrowserVersion.Latest, FileLocationBehavior.UseSystemInstallLocation, downloadOptions: options, cancellationToken: TestContext.Current.CancellationToken);
+        string? path = await DriverLocator.FindDriverAsync(BrowserKind.Chrome, BrowserReleaseChannel.Stable, BrowserVersion.Latest, FileLocationBehavior.UseCustomLocation, browserPath, options, TestContext.Current.CancellationToken);
 
         Assert.Equal(installedPath, path);
     }
@@ -327,11 +328,12 @@ public class InstallCacheTests
         string installedPath = CacheSeeder.SeedInstallation(cache, "drivers/chromedriver", OlderVersion, "chromedriver");
         CacheSeeder.SeedResolvedVersion(cache, "drivers/chromedriver", "latest-stable", OlderVersion, DateTimeOffset.UtcNow.AddDays(-30));
         BrowserDownloadOptions options = TestDownloadOptions.Create(server, cache, skipDownload: true);
+        string browserPath = UninstalledBrowserPath(cache);
 
-        string? path = await DriverLocator.FindDriverAsync(BrowserKind.Chrome, BrowserReleaseChannel.Stable, BrowserVersion.Latest, FileLocationBehavior.UseSystemInstallLocation, downloadOptions: options, cancellationToken: TestContext.Current.CancellationToken);
+        string? path = await DriverLocator.FindDriverAsync(BrowserKind.Chrome, BrowserReleaseChannel.Stable, BrowserVersion.Latest, FileLocationBehavior.UseCustomLocation, browserPath, options, TestContext.Current.CancellationToken);
 
         Assert.Equal(installedPath, path);
-        await Assert.ThrowsAsync<BrowserDownloadException>(() => DriverLocator.FindDriverAsync(BrowserKind.Chrome, BrowserReleaseChannel.Beta, BrowserVersion.Latest, FileLocationBehavior.UseSystemInstallLocation, downloadOptions: options, cancellationToken: TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<BrowserDownloadException>(() => DriverLocator.FindDriverAsync(BrowserKind.Chrome, BrowserReleaseChannel.Beta, BrowserVersion.Latest, FileLocationBehavior.UseCustomLocation, browserPath, options, TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<BrowserDownloadException>(() => DriverLocator.FindDriverAsync(BrowserKind.Chrome, BrowserReleaseChannel.Stable, BrowserVersion.Specific(LatestVersion), FileLocationBehavior.AutoLocateAndDownload, downloadOptions: options, cancellationToken: TestContext.Current.CancellationToken));
         Assert.Empty(server.RequestedUrls);
     }
@@ -410,6 +412,12 @@ public class InstallCacheTests
             { OperatingSystem: OperatingSystemFamily.Windows } => "win32",
             _ => "linux64",
         };
+    }
+
+    // A browser whose version cannot be read, so the driver is not matched to whatever the machine has installed.
+    private static string UninstalledBrowserPath(TemporaryDirectory cache)
+    {
+        return Path.Combine(cache.Path, "no-browser", "chrome");
     }
 
     private static async Task AssertDownloadFailedAsync(Func<Task> action)

@@ -20,6 +20,8 @@
       document.getElementById('record').addEventListener('click', (e) => window.events.push(`click:${e.button}:${e.detail}:${e.shiftKey}:${e.altKey}`));
       document.getElementById('record').addEventListener('auxclick', (e) => window.events.push(`auxclick:${e.button}`));
       document.getElementById('record').addEventListener('contextmenu', (e) => e.preventDefault());
+      // A middle press starts autoscrolling on Windows instead of clicking.
+      document.getElementById('record').addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });
       document.getElementById('double').addEventListener('dblclick', () => window.events.push('dblclick'));
       document.getElementById('hover-target').addEventListener('mouseenter', () => window.events.push('hover'));
       document.getElementById('covered').addEventListener('click', () => window.events.push('covered'));
