@@ -4,6 +4,10 @@ Browser automation for .NET, built on the W3C [WebDriver BiDi](https://w3c.githu
 [WebDriverBiDi.NET](https://github.com/webdriverbidi-net/webdriverbidi-net). One API drives Chrome, Firefox, and Edge,
 with locators, actions that wait for their element to be ready, and assertions that retry until they hold.
 
+![CI](https://github.com/webdriverbidi-net/dramaturge/actions/workflows/ci.yml/badge.svg)
+[![Coverage Status](https://coveralls.io/repos/github/webdriverbidi-net/dramaturge/badge.svg?branch=main&kill_cache=1)](https://coveralls.io/github/webdriverbidi-net/dramaturge?branch=main)
+[![NuGet Version](https://img.shields.io/nuget/v/Dramaturge)](https://www.nuget.org/packages/Dramaturge)
+
 > **Pre-release:** Dramaturge is at version 0.0.x, and its API may change in any release.
 
 <!-- readme-csharp: docs/code/DramaturgeReadmeSamples.cs#QuickStart -->
