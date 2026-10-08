@@ -185,7 +185,7 @@ public class CodeRecordingIntegrationTests
     {
         await using TestPageServer server = await TestPageServer.StartAsync();
 
-        // Chrome never answers script commands in a popup (bug #9), so recording there waits out this timeout and records nothing.
+        // Chrome never answers script commands in a popup (crbug.com/571161446), so recording there waits out this timeout and records nothing.
         await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind, new DramaturgeOptions() { NavigationTimeout = TimeSpan.FromSeconds(5) });
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
         await page.NavigateAsync(server.UrlFor("recording-effects.html"), cancellationToken: TestContext.Current.CancellationToken);

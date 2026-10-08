@@ -27,7 +27,7 @@ public sealed class VideoIntegrationTests : IDisposable
     [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
     public async Task PageVideoIsWrittenToThePathAskedFor(BrowserKind browserKind)
     {
-        Assert.SkipWhen(browserKind == BrowserKind.Chrome, "Chrome does not implement browsingContext.startScreencast.");
+        Assert.SkipWhen(browserKind == BrowserKind.Chrome, "Chrome does not implement browsingContext.startScreencast (https://issues.chromium.org/issues/517158243).");
         await using TestPageServer server = await TestPageServer.StartAsync();
         await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);

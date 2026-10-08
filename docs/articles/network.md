@@ -16,9 +16,9 @@ A route stops requests before they are sent, and hands each to a handler that an
 
 Routes are tried newest first. A handler that decides nothing passes the request to the next route that matches it, and a request no route decides continues unchanged. A handler that throws is reported on the group's `OnLogMessage`, and its request continues. `RemoveAsync` removes a route, and `UnrouteAllAsync` removes all of a page's.
 
-> **Firefox:** a request continued with another URL receives its response, but the page's `fetch` rejects it, in Firefox.
+> **Firefox:** a request continued with another URL receives its response, but the page's `fetch` rejects it, in Firefox ([bug 2079895](https://bugzilla.mozilla.org/show_bug.cgi?id=2079895)).
 
-> **Chrome:** a response given only a status code, with neither headers nor a body, is not provided: Chrome's WebDriver BiDi implementation continues the request to the network instead. Give a body, even an empty string, or a header.
+> **Chrome:** a response given only a status code, with neither headers nor a body, is not provided: Chrome's WebDriver BiDi implementation continues the request to the network instead ([issue 571267467](https://issues.chromium.org/issues/571267467)). Give a body, even an empty string, or a header.
 
 ### Stopping Fewer Requests
 
@@ -38,7 +38,7 @@ A request is offered to its page's routes first, newest first, then to its brows
 
 WebDriver BiDi cannot limit stopping requests to one browser, so while a browser route exists, the matching requests of the group's other browsers are stopped too, and continued at once, at the cost of a round trip each. Give a browser route a filter.
 
-> **Chrome:** Chrome neither stops nor reports a popup's first request, so a browser route does not see it; the popup's later requests are routed.
+> **Chrome:** Chrome neither stops nor reports a popup's first request, so a browser route does not see it; the popup's later requests are routed ([issue 571161447](https://issues.chromium.org/issues/571161447)).
 
 ## Recording and Replaying HAR Files
 

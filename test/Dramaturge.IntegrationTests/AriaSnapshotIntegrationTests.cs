@@ -84,7 +84,7 @@ public class AriaSnapshotIntegrationTests
     [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
     public async Task RefIntoAReplacedDocumentFails(BrowserKind browserKind)
     {
-        Assert.SkipWhen(browserKind == BrowserKind.Firefox, "Firefox resolves a shared reference to an element of a document its frame has navigated away from, where the protocol requires a no such node error.");
+        Assert.SkipWhen(browserKind == BrowserKind.Firefox, "Firefox resolves a shared reference to an element of a document its frame has navigated away from, where the protocol requires a no such node error (https://bugzilla.mozilla.org/show_bug.cgi?id=2079880).");
         await using TestPageServer server = await TestPageServer.StartAsync();
         await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
         Page page = await OpenAsync(group, server, "aria-snapshot.html");
