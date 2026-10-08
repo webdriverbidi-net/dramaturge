@@ -131,13 +131,42 @@ public sealed class TraceCaptureTests : IDisposable
             await button.CountAsync(TestContext.Current.CancellationToken);
         }
 
-        List<JsonObject> frames = [.. ReadLines(path).Where(e => (string?)e["type"] == "screencast-frame")];
+        // A load's capture runs beside the actions after it and can be written after theirs; its time is when it was taken.
+        List<JsonObject> frames = [.. ReadLines(path).Where(e => (string?)e["type"] == "screencast-frame").OrderBy(e => (double)e["timestamp"]!)];
         Assert.Equal(["100x50", "20x10", "0x0", "0x0"], frames.Select(e => $"{e["width"]}x{e["height"]}"));
         Assert.All(frames, frame => Assert.Equal(page.Id, (string?)frame["pageId"]));
         Assert.Equal(BaselineJpeg, ReadEntry(path, (string)frames[0]["file"]!));
         Assert.StartsWith($"screencast/{page.Id}-", (string?)frames[0]["file"]);
         Assert.EndsWith(".jpeg", (string?)frames[0]["file"]);
         Assert.Equal("image/jpeg", (string?)session.RemoteEnd.CommandsFor("browsingContext.captureScreenshot")[0]["params"]!["format"]!["type"]);
+    }
+
+    [Fact]
+    public async Task LoadFrameThatFinishesAfterTheNextActionKeepsItsPlace()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("button-1"));
+        Queue<byte[]> images = new([BaselineJpeg, ProgressiveJpeg, FramelessJpeg]);
+        session.RemoteEnd.AnswerWith("browsingContext.captureScreenshot", _ => new JsonObject() { ["data"] = Convert.ToBase64String(images.Dequeue()) });
+        ElementLocator button = page.Locate(new CssLocator("button"));
+        string path = Path.Combine(this.directory, "trace.zip");
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await using (await page.Browser.RecordTraceAsync(path, new TraceRecordingOptions() { Screenshots = true }, TestContext.Current.CancellationToken))
+        {
+            await button.CountAsync(TestContext.Current.CancellationToken);
+            session.RemoteEnd.HoldAnswers("browsingContext.captureScreenshot", release.Task);
+            await session.RaiseNavigationEventAsync("browsingContext.load", page.Id, "https://example.com/next");
+            await session.RemoteEnd.WaitForCommandAsync("browsingContext.captureScreenshot", 2);
+            session.RemoteEnd.StopHolding("browsingContext.captureScreenshot");
+            await button.CountAsync(TestContext.Current.CancellationToken);
+            release.SetResult();
+        }
+
+        List<JsonObject> written = [.. ReadLines(path).Where(e => (string?)e["type"] == "screencast-frame")];
+        Assert.Equal(["100x50", "0x0", "20x10"], written.Select(e => $"{e["width"]}x{e["height"]}"));
+        Assert.Equal(["100x50", "20x10", "0x0"], written.OrderBy(e => (double)e["timestamp"]!).Select(e => $"{e["width"]}x{e["height"]}"));
     }
 
     [Fact]

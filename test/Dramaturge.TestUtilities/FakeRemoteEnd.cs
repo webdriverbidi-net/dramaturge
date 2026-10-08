@@ -25,6 +25,7 @@ public sealed class FakeRemoteEnd : Connection
     private readonly ConcurrentDictionary<string, Func<JsonObject, FakeResponse>> results = new();
     private readonly ConcurrentDictionary<string, ErrorResponse> errors = new();
     private readonly ConcurrentDictionary<string, bool> unansweredMethods = new();
+    private readonly ConcurrentDictionary<string, Task> heldMethods = new();
     private TaskCompletionSource<bool> closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int isOpenFlag;
     private int identifierCount;
@@ -102,6 +103,26 @@ public sealed class FakeRemoteEnd : Connection
     public void NeverAnswer(string method)
     {
         this.unansweredMethods[method] = true;
+    }
+
+    /// <summary>
+    /// Holds the answers to a command until a task completes, for the commands sent from now until
+    /// <see cref="StopHolding"/>; each is answered as it would be otherwise, but only then.
+    /// </summary>
+    /// <param name="method">The command's method.</param>
+    /// <param name="release">Completes when the held answers are to be delivered.</param>
+    public void HoldAnswers(string method, Task release)
+    {
+        this.heldMethods[method] = release;
+    }
+
+    /// <summary>
+    /// Answers the commands with a method sent from now on at once again; those already held stay held.
+    /// </summary>
+    /// <param name="method">The command's method.</param>
+    public void StopHolding(string method)
+    {
+        this.heldMethods.TryRemove(method, out _);
     }
 
     /// <summary>
@@ -224,8 +245,10 @@ public sealed class FakeRemoteEnd : Connection
         }
 
         // Answered asynchronously, as a remote end would, rather than within the send.
+        Task release = this.heldMethods.TryGetValue(method, out Task? held) ? held : Task.CompletedTask;
         _ = Task.Run(async () =>
         {
+            await release;
             foreach (JsonObject message in events)
             {
                 await this.DeliverAsync(message);

@@ -442,10 +442,12 @@ public sealed class TraceRecording : IAsyncDisposable
     {
         try
         {
+            // A frame is placed when it was asked for: a load's capture can finish after the next action's.
+            double requested = TraceWriter.Now;
             CaptureScreenshotCommandParameters parameters = new(page.Id) { Format = new ImageFormat() { Type = "image/jpeg", Quality = 0.5 } };
             TimeBudget budget = new(this.browser.Group.Options.ActionTimeout, this.browser.Group.Options.TimeProvider, CancellationToken.None);
             CaptureScreenshotCommandResult result = await this.browser.Group.Driver.BrowsingContext.CaptureScreenshotAsync(parameters, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
-            this.writer.WriteScreencastFrame(page.Id, Convert.FromBase64String(result.Data));
+            this.writer.WriteScreencastFrame(page.Id, Convert.FromBase64String(result.Data), requested);
         }
         catch (WebDriverBiDiException)
         {

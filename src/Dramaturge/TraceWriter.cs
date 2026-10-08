@@ -192,7 +192,8 @@ internal sealed class TraceWriter
     /// </summary>
     /// <param name="pageId">The page's ID.</param>
     /// <param name="jpeg">The frame, a JPEG image.</param>
-    public void WriteScreencastFrame(string pageId, byte[] jpeg)
+    /// <param name="timestamp">When the frame was asked for, on the trace's clock.</param>
+    public void WriteScreencastFrame(string pageId, byte[] jpeg, double timestamp)
     {
         (int width, int height) = JpegSize(jpeg);
         string file = $"screencast/{pageId}-{Sha1(jpeg)}.jpeg";
@@ -204,7 +205,7 @@ internal sealed class TraceWriter
             writer.WriteString("file", file);
             writer.WriteNumber("width", width);
             writer.WriteNumber("height", height);
-            writer.WriteNumber("timestamp", Now);
+            writer.WriteNumber("timestamp", timestamp);
         });
     }
 
