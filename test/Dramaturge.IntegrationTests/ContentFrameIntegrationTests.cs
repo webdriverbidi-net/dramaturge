@@ -48,7 +48,7 @@ public class ContentFrameIntegrationTests
     [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
     public async Task RoleLocatorFindsAnElementInAFrame(BrowserKind browserKind)
     {
-        Assert.SkipWhen(browserKind == BrowserKind.Chrome, "Chrome's accessibility locator finds no element in a child frame.");
+        Assert.SkipWhen(browserKind == BrowserKind.Chrome, "Chrome's accessibility locator finds no element in a same-origin child frame.");
         await using TestPageServer server = await TestPageServer.StartAsync();
         await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
