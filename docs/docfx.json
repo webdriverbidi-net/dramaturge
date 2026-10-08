@@ -69,12 +69,21 @@
         ]
       }
     ],
+    "resource": [
+      {
+        "files": [
+          "images/**"
+        ]
+      }
+    ],
     "dest": "_site",
     "globalMetadata": {
       "title": "Dramaturge Documentation",
       "description": "Documentation for Dramaturge, browser automation for .NET built on WebDriver BiDi",
       "author": "WebDriverBiDi.NET Committers",
-      "copyright": "Copyright (c) 2026 WebDriverBiDi.NET Committers. All rights reserved."
+      "copyright": "Copyright (c) 2026 WebDriverBiDi.NET Committers. All rights reserved.",
+      "_appLogoPath": "images/logo.svg",
+      "_appFaviconPath": "images/favicon.ico"
     },
     "globalMetadataFiles": [],
     "fileMetadataFiles": [],

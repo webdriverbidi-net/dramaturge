@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- The logo simplified for 16 and 32 pixels: no folds or floor, a larger cursor. -->
+  <rect width="32" height="32" rx="6" fill="#1B3354"/>
+  <path d="M2 6 H11 C9 13 7 19 8 28 H2 Z" fill="#B8323F"/>
+  <path d="M30 6 H21 C23 13 25 19 24 28 H30 Z" fill="#B8323F"/>
+  <path d="M2 2.5 H30 V7.5 C27 9.5 24 9.5 22 7.5 C19 9.5 13 9.5 10 7.5 C8 9.5 5 9.5 2 7.5 Z" fill="#F2B530"/>
+  <path d="M11.5 9.5 L11.5 26 L15.4 22.3 L18 28.2 L21 26.9 L18.4 21.1 L23.6 20.8 Z" fill="#FFFFFF" stroke="#0E1F36" stroke-width="1.4" stroke-linejoin="round"/>
+</svg>

@@ -151,7 +151,7 @@ Routes answer (`FulfillAsync`), change (`ContinueAsync`), or fail (`AbortAsync`)
 ## Known Browser Gaps
 
 - Firefox: `GetByText` is unsupported (its innerText locator, bug 1869538); native HTML5 drag-and-drop fires only `dragstart` (bug 1515879); the dialog handler given to a new browser is ignored (bug 1975279).
-- Chrome: a route's `FulfillAsync` with only a status code is sent to the network instead; give a body or header. A popup's first request is never stopped, so no browser route sees it. Screenshots of elements inside iframes fail. `GetByRole` finds nothing inside an iframe; use another locator there. Video is not supported: `RecordVideoAsync` throws `NotSupportedException`, and `VideoOnFailure` gives one warning per test.
+- Chrome: a route's `FulfillAsync` with only a status code is sent to the network instead; give a body or header. A popup's first request is never stopped, so no browser route sees it. Screenshots of elements inside iframes fail. `GetByRole` finds nothing inside a same-origin iframe; use another locator there. Video is not supported: `RecordVideoAsync` throws `NotSupportedException`, and `VideoOnFailure` gives one warning per test.
 - Snapshot names versus `GetByRole`: both browsers leave table rows unnamed; Chrome does not name a `figure` from its `figcaption`; Firefox names a value-less submit button "Submit Query" and gives an `svg` without a role another role than `image`. Firefox still finds a ref's element after its frame navigates away, instead of throwing.
 
 ## Rules

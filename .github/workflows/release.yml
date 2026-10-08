@@ -1,16 +1,20 @@
 # Release workflow for Dramaturge.
 #
-# Triggered only by pushing a vX.Y.Z tag on a commit that is on main. Runs the full test suite (through
+# Triggered by pushing a vX.Y.Z tag on a commit that is on main. Runs the full test suite (through
 # _tests.yml), builds and publishes the documentation site, and packs and pushes the Dramaturge,
 # Dramaturge.Browsers, Dramaturge.Tool, Dramaturge.Xunit, Dramaturge.NUnit, Dramaturge.MSTest, and Dramaturge.TUnit
 # packages, which share the tag's version. The publishing jobs need the
 # tests, so a failure on the tagged commit publishes nothing.
+#
+# Run by hand (workflow_dispatch) on main or a release tag, it only builds and publishes the documentation, for
+# changes to the documentation alone; it runs no tests and publishes no packages.
 
 name: Release
 
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+', 'v[0-9]+.[0-9]+.[0-9]+-*']
+  workflow_dispatch:
 
 concurrency:
   group: release-${{ github.ref }}
@@ -22,6 +26,7 @@ permissions:
 jobs:
   tests:
     name: Tests
+    if: github.event_name == 'push'
     uses: ./.github/workflows/_tests.yml
 
   verify-tag:
@@ -31,8 +36,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Everything a tag publishes is gated on this, so a tag on a commit that never reached main publishes nothing.
-      - name: Verify tag is on origin/main
+      # Everything a run publishes is gated on this, so a commit that never reached main publishes nothing.
+      - name: Verify the commit is on origin/main
         run: |
           git fetch --no-tags origin main
           git merge-base --is-ancestor "${GITHUB_SHA}" origin/main
@@ -40,6 +45,8 @@ jobs:
   build-docs:
     name: Build documentation
     needs: [tests, verify-tag]
+    # Runs after the tests, or without them when run by hand.
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -78,8 +85,10 @@ jobs:
 
   deploy-docs:
     name: Deploy documentation
-    # Also needs the release, so the published documentation always describes a version that is on NuGet.
+    # Also needs the release, so documentation published with a tag always describes a version that is on NuGet; a
+    # run by hand has no release.
     needs: [build-docs, release]
+    if: ${{ !failure() && !cancelled() && needs.build-docs.result == 'success' }}
     concurrency:
       group: pages
       cancel-in-progress: false
@@ -99,6 +108,7 @@ jobs:
   release:
     name: Publish to NuGet
     needs: [tests, build-docs, verify-tag]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # contents: read is restated because a job-level map replaces the workflow's; id-token: write enables the OIDC

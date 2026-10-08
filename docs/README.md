@@ -9,11 +9,13 @@
   matches its region.
 - `tools/generate-llms.cs`: writes `llms.txt` and `llms-full.txt` into the built site (see below), with DocFX tabs
   turned into labels.
+- `images/`: the site's logo (`logo.svg`) and its favicon, simplified for 16 and 32 pixels (`favicon.svg`, and
+  `favicon.ico` rendered from it).
 - `docfx.json`, `toc.yml`, `index.md`, `api/index.md`, and `templates/dramaturge`: the DocFX site, published to
   https://webdriverbidi-net.github.io/dramaturge/. Its API reference is read from the netstandard2.0 builds, and from
   the net10.0 builds of the test framework packages, which have no other.
 
-To build the site, with DocFX pinned in `.config/dotnet-tools.json`, run from the `dramaturge` directory:
+To build the site, with DocFX pinned in `.config/dotnet-tools.json`, run from the repository root:
 
     dotnet build src/Dramaturge/Dramaturge.csproj --configuration Release
     for package in Xunit NUnit MSTest TUnit; do dotnet build "src/Dramaturge.$package/Dramaturge.$package.csproj" --configuration Release; done
@@ -28,3 +30,8 @@ To build the site, with DocFX pinned in `.config/dotnet-tools.json`, run from th
 The `generate-llms.cs` step writes `llms.txt` and `llms-full.txt` into the site, for language models: an index of
 the articles, and every article in one Markdown file with its code samples written out. They are published with the
 site, at its root.
+
+The release workflow publishes the site with each release, after the packages reach NuGet. To publish changes to the
+documentation alone, run the Release workflow by hand (Actions, Release, Run workflow) on `main`: it builds and
+publishes the site from that commit, without tests or packages, so do it only while `main` describes the released
+API.

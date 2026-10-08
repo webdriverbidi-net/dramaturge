@@ -105,7 +105,7 @@ A browser records code once at a time; starting another recording while one is r
 ## Limitations
 
 - **Chrome popups:** Chrome does not answer script commands in a page that a script opened, so the popup itself is recorded but nothing done in it is, and stopping waits for the group's `NavigationTimeout` for the popup.
-- **Chrome frames:** Chrome's role lookup does not find elements in a child frame, so an element there is found by its text or attributes instead of its role.
+- **Chrome frames:** Chrome's role lookup does not find elements in a same-origin child frame, so an element there is found by its text or attributes instead of its role.
 - **Firefox text:** Firefox cannot look elements up by their rendered text, so `GetByText` is never chosen there.
 - **Shadow roots:** an element in a shadow root gets a role or attribute locator where one finds it; its CSS path starts inside the shadow root, so it works only with `DramaturgeOptions.PierceShadowRoots`. An action in a frame whose element is in a shadow root is not recorded.
 - **Typed values:** what you type is written into the code as it is, passwords included.
