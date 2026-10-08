@@ -64,7 +64,7 @@ public class NetworkIntegrationTests
     [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
     public async Task ContinuedRequestCanGoToAnotherUrl(BrowserKind browserKind)
     {
-        Assert.SkipWhen(browserKind == BrowserKind.Firefox, "Firefox sends a request continued with another URL and receives its response, but the page's fetch rejects it.");
+        Assert.SkipWhen(browserKind == BrowserKind.Firefox, "Firefox sends a request continued with another URL and receives its response, but the page's fetch rejects it (https://bugzilla.mozilla.org/show_bug.cgi?id=2079895).");
         await using TestPageServer server = await TestPageServer.StartAsync();
         await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
         Page page = await OpenAsync(group, server);
@@ -113,7 +113,7 @@ public class NetworkIntegrationTests
     [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
     public async Task BrowserRouteAnswersAPopupsFirstRequest(BrowserKind browserKind)
     {
-        Assert.SkipWhen(browserKind == BrowserKind.Chrome, "Chrome neither stops nor reports a popup's first request, so no route can answer it.");
+        Assert.SkipWhen(browserKind == BrowserKind.Chrome, "Chrome neither stops nor reports a popup's first request, so no route can answer it (https://issues.chromium.org/issues/571161447).");
         await using TestPageServer server = await TestPageServer.StartAsync();
         await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
         Page page = await OpenAsync(group, server);

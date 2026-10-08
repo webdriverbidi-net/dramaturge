@@ -86,7 +86,7 @@ public class ReadIntegrationTests
     [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
     public async Task ScreenshotCapturesAnElementInAFrame(BrowserKind browserKind)
     {
-        Assert.SkipWhen(browserKind == BrowserKind.Chrome, "Chrome does not capture screenshots of a frame that is not top-level (\"Non-top-level 'context' is currently not supported\"), which the protocol permits.");
+        Assert.SkipWhen(browserKind == BrowserKind.Chrome, "Chrome does not capture screenshots of a frame that is not top-level (\"Non-top-level 'context' is currently not supported\"), which the protocol permits (https://issues.chromium.org/issues/571157929).");
         await using TestPageServer server = await TestPageServer.StartAsync();
         await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
         Page page = await OpenAsync(group, server);

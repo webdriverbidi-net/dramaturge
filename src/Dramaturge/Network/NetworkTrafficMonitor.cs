@@ -244,7 +244,7 @@ public sealed class NetworkTrafficMonitor : IAsyncDisposable
 
         // A monitor limited to user contexts subscribes to every event and keeps those of its user contexts itself: it
         // must see the requests of other user contexts that its intercepts stop, to continue them, and Chrome does not
-        // send a worker's events to a subscription limited to user contexts. Once chromium-bidi does, subscribe with
+        // send a worker's events to a subscription limited to user contexts (crbug.com/571526261). Once chromium-bidi does, subscribe with
         // the user contexts when the monitor has no intercepts.
         SubscribeCommandParameters subscribe = new(subscribedEvents, starting.BrowsingContextIds.Length > 0 ? [.. starting.BrowsingContextIds] : null);
         starting.SubscriptionId = (await this.driver.Session.SubscribeAsync(subscribe, cancellationToken: cancellationToken).ConfigureAwait(false)).SubscriptionId;
@@ -305,7 +305,7 @@ public sealed class NetworkTrafficMonitor : IAsyncDisposable
 
         if (this.pendingRequests.Count < current.MaxRetainedRequests)
         {
-            // The body is not disowned: Chrome then forgets a request that a route has stopped, so that the route can no
+            // The body is not disowned: Chrome then forgets a request that a route has stopped (crbug.com/571267468), so that the route can no
             // longer answer it. The collector's request bodies are released when monitoring stops. Once chromium-bidi
             // keeps a request whose data was disowned, set DisownCollectedData here again.
             Task<GetDataCommandResult>? requestBody = current.CollectorId is not null && e.Request.BodySize > 0

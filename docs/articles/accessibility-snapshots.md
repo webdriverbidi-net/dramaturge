@@ -48,7 +48,7 @@ Every node in a snapshot has a ref, such as `e4`, and `Locator` turns a ref into
 - **A removed element is not found.** Its locator finds nothing, as any locator does when nothing matches, so `CountAsync` returns 0 and actions wait for it until they time out.
 - **An element whose document has gone**, because its frame navigated or closed, can never be found again, so its locator throws `InvalidOperationException` at once.
 
-> **Firefox:** Firefox still finds an element of a document its frame has navigated away from, where the protocol requires an error, so a ref from before a navigation finds the old element instead of throwing.
+> **Firefox:** Firefox still finds an element of a document its frame has navigated away from, where the protocol requires an error ([bug 2079880](https://bugzilla.mozilla.org/show_bug.cgi?id=2079880)), so a ref from before a navigation finds the old element instead of throwing.
 
 `Locator` throws `ArgumentException` for a ref the snapshot does not have.
 
