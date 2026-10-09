@@ -58,6 +58,7 @@ public class CodeRecordingTests
             await page.Locate(new CssLocator("#notes")).PressAsync("😀");
             // The key "ContextMenu" was pressed, which is neither a member of Keys nor a character.
             await page.Locate(new CssLocator("#size")).SelectOptionAsync([SelectOption.ByValue("s"), SelectOption.ByValue("l")]);
+            // The page knows only the files' names; replace each with the file's path.
             await page.Locate(new CssLocator("#file")).SetInputFilesAsync(["a.txt", "b \"c\".txt"]);
 
             """.Replace("\r\n", "\n"),

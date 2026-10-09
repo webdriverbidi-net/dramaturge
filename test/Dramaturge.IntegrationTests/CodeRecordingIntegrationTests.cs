@@ -445,6 +445,35 @@ public class CodeRecordingIntegrationTests
         Assert.DoesNotContain("s3cret", code);
     }
 
+    // A protocol traversal stands in for the browser's back and forward buttons, which no test can press.
+    [Theory]
+    [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
+    public async Task UsersTraversalIsRecordedAsBackOrForward(BrowserKind browserKind)
+    {
+        Assert.SkipWhen(browserKind == BrowserKind.Chrome, "Chrome does not report every traversal of the history to the page, so one may be recorded as NavigateAsync instead.");
+        await using TestPageServer server = await TestPageServer.StartAsync();
+        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string start = server.UrlFor("recording.html");
+        string second = server.UrlFor("second.html");
+        await page.NavigateAsync(start, cancellationToken: TestContext.Current.CancellationToken);
+        CodeRecording recording = await group.DefaultBrowser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        async Task TraverseAsync(int delta, string url)
+        {
+            await page.WaitForFunctionAsync("() => document.querySelector('dramaturge-toolbar') !== null", cancellationToken: TestContext.Current.CancellationToken);
+            await group.Driver.BrowsingContext.TraverseHistoryAsync(new TraverseHistoryCommandParameters(page.Id, delta), cancellationToken: TestContext.Current.CancellationToken);
+            await page.WaitForUrlAsync(url, cancellationToken: TestContext.Current.CancellationToken);
+        }
+
+        await page.NavigateAsync(second, cancellationToken: TestContext.Current.CancellationToken);
+        await TraverseAsync(-1, start);
+        await TraverseAsync(1, second);
+        await page.WaitForFunctionAsync("() => document.querySelector('dramaturge-toolbar') !== null", cancellationToken: TestContext.Current.CancellationToken);
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Contains($"await page.NavigateAsync(\"{second}\");\nawait page.GoBackAsync();\nawait page.GoForwardAsync();\n", code);
+    }
+
     private static async Task<ToolbarBox> GetToolbarBoxAsync(Page page)
     {
         string json = await page.EvaluateAsync<string>("() => JSON.stringify(document.querySelector('dramaturge-toolbar').getBoundingClientRect())", cancellationToken: TestContext.Current.CancellationToken);

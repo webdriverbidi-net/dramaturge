@@ -125,6 +125,42 @@ public class CodeRecordingEffectsTests
             Statements(code));
     }
 
+    // A page rarely traverses its history without an action, so a reported traversal without one is the user's.
+    [Fact]
+    public async Task TraversalWithoutAnActionIsTheUsersBackOrForward()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+        async Task TraverseAsync(string url, int? steps, string navigationId)
+        {
+            await SendAsync(driver, session, channel, page.Id, Navigate(url, steps));
+            await StartAsync(driver, session, page.Id, url, navigationId);
+            await CommitAsync(driver, session, page.Id, url, navigationId);
+        }
+
+        await TraverseAsync("https://example.com/back", -1, "navigation-back");
+        await TraverseAsync("https://example.com/forward", 1, "navigation-forward");
+        await TraverseAsync("https://example.com/far", -2, "navigation-far");
+        await TraverseAsync("https://example.com/pushed", null, "navigation-pushed");
+        await SendAsync(driver, session, channel, page.Id, new JsonObject() { ["kind"] = "navigate", ["url"] = "https://example.com/replaced" });
+        await StartAsync(driver, session, page.Id, "https://example.com/replaced", "navigation-replaced");
+        await CommitAsync(driver, session, page.Id, "https://example.com/replaced", "navigation-replaced");
+        await SendAsync(driver, session, channel, page.Id, Click("#back"));
+        await TraverseAsync("https://example.com/clicked", -1, "navigation-clicked");
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                "await page.GoBackAsync();",
+                "await page.GoForwardAsync();",
+                "await page.NavigateAsync(\"https://example.com/far\");",
+                "await page.RunAndWaitForNavigationAsync(() => page.Locate(new CssLocator(\"#back\")).ClickAsync());",
+            ],
+            Statements(code));
+    }
+
     [Fact]
     public async Task NavigationThePageStartedWithoutThePendingActionIsNotRecorded()
     {
@@ -342,14 +378,15 @@ public class CodeRecordingEffectsTests
         string channel = await GetChannelAsync(session);
 
         await SendAsync(driver, session, channel, page.Id, Action("setInputFiles", "#file", new JsonField("files", new JsonArray("upload.txt"))));
-        await SendAsync(driver, session, channel, page.Id, Action("setInputFiles", "#file", new JsonField("files", new JsonArray("/files/upload.txt"))));
-        await SendAsync(driver, session, channel, page.Id, Action("setInputFiles", "#other", new JsonField("files", new JsonArray("/files/other.txt"))));
+        await SendAsync(driver, session, channel, page.Id, Action("setInputFiles", "#file", new JsonField("files", new JsonArray("/files/upload.txt")), new JsonField("paths", true)));
+        await SendAsync(driver, session, channel, page.Id, Action("setInputFiles", "#other", new JsonField("files", new JsonArray("other.txt"))));
         string code = await recording.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(
             [
                 "await page.Locate(new CssLocator(\"#file\")).SetInputFilesAsync([\"/files/upload.txt\"]);",
-                "await page.Locate(new CssLocator(\"#other\")).SetInputFilesAsync([\"/files/other.txt\"]);",
+                "// The page knows only the files' names; replace each with the file's path.",
+                "await page.Locate(new CssLocator(\"#other\")).SetInputFilesAsync([\"other.txt\"]);",
             ],
             Statements(code));
     }
@@ -594,7 +631,7 @@ public class CodeRecordingEffectsTests
         return RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationCommitted, contextId, url, navigationId));
     }
 
-    private static JsonObject Navigate(string url) => new() { ["kind"] = "navigate", ["url"] = url };
+    private static JsonObject Navigate(string url, int? steps = null) => new() { ["kind"] = "navigate", ["url"] = url, ["steps"] = steps };
 
     private static JsonObject WillBegin(string contextId, string? navigationId = null)
     {

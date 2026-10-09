@@ -33,7 +33,7 @@ public sealed class CodeRecording : IAsyncDisposable
     private readonly Dictionary<Frame, string> frameVariables = [];
     private readonly HashSet<Page> actedPages = [];
     private readonly Dictionary<Page, StartedNavigation> navigations = [];
-    private readonly Dictionary<Page, HashSet<string>> reportedNavigations = [];
+    private readonly Dictionary<Page, Dictionary<string, int?>> reportedNavigations = [];
     private readonly Dictionary<Frame, CancellationTokenSource> lookupSources = [];
     private readonly Dictionary<Page, string> libraryNavigations = [];
     private readonly ObservableEventInvocable<CodeStatementEventArgs> onStatement = new("automation.codeStatement");
@@ -316,7 +316,8 @@ public sealed class CodeRecording : IAsyncDisposable
             case "select":
                 return Action($"SelectOptionAsync({CodeWriter.Collection(Strings(action.GetProperty("values")).Select(value => $"SelectOption.ByValue({CodeWriter.Literal(value)})"))})", locatorNamespaces);
             case "setInputFiles":
-                return Action($"SetInputFilesAsync({CodeWriter.Collection(Strings(action.GetProperty("files")).Select(CodeWriter.Literal))})", locatorNamespaces, $"files {locator}");
+                RecordedStep files = Action($"SetInputFilesAsync({CodeWriter.Collection(Strings(action.GetProperty("files")).Select(CodeWriter.Literal))})", locatorNamespaces, $"files {locator}");
+                return action.TryGetProperty("paths", out _) ? files : files with { Note = "// The page knows only the files' names; replace each with the file's path." };
             case "assertVisible":
                 return Assertion("ToBeVisibleAsync()");
             case "assertText":
@@ -418,7 +419,7 @@ public sealed class CodeRecording : IAsyncDisposable
 
         if (kind == "navigate")
         {
-            this.OnNavigationReported(frame, message.GetProperty("url").GetString()!);
+            this.OnNavigationReported(frame, message.GetProperty("url").GetString()!, message.TryGetProperty("steps", out JsonElement steps) && steps.ValueKind == JsonValueKind.Number ? steps.GetInt32() : null);
             return;
         }
 
@@ -562,19 +563,20 @@ public sealed class CodeRecording : IAsyncDisposable
     }
 
     // A document reports its navigation before the navigation commits, though not always before it starts.
-    private void OnNavigationReported(Frame frame, string url)
+    // A traversal of the page's history is reported with its steps, negative for back.
+    private void OnNavigationReported(Frame frame, string url, int? steps)
     {
         lock (this.lockObject)
         {
             if (frame == frame.Page.MainFrame)
             {
-                if (!this.reportedNavigations.TryGetValue(frame.Page, out HashSet<string>? urls))
+                if (!this.reportedNavigations.TryGetValue(frame.Page, out Dictionary<string, int?>? reports))
                 {
-                    urls = [];
-                    this.reportedNavigations[frame.Page] = urls;
+                    reports = [];
+                    this.reportedNavigations[frame.Page] = reports;
                 }
 
-                urls.Add(url);
+                reports[url] = steps;
             }
         }
     }
@@ -594,7 +596,8 @@ public sealed class CodeRecording : IAsyncDisposable
     // A navigation is the effect of the action pending when it started, if that action is still pending and has caused
     // none yet. Otherwise its document's report, which Chrome sometimes loses, tells the page's own navigation, which
     // replay repeats, from the user's, as when typing an address; a popup's first, before it is acted in, is its
-    // opener's.
+    // opener's. A reported traversal of the history is the user's, by the browser's back or forward, since a page
+    // rarely traverses its history without an action; a step back or forward is written as one.
     private Task OnNavigationCommittedAsync(Page page, string? navigationId)
     {
         return this.ChangeAsync(settled =>
@@ -605,7 +608,8 @@ public sealed class CodeRecording : IAsyncDisposable
             }
 
             this.navigations.Remove(page);
-            bool reported = this.reportedNavigations.TryGetValue(page, out HashSet<string>? urls) && urls.Contains(started.Url);
+            int? steps = null;
+            bool reported = this.reportedNavigations.TryGetValue(page, out Dictionary<string, int?>? reports) && reports.TryGetValue(started.Url, out steps);
             this.reportedNavigations.Remove(page);
             if (started.Library)
             {
@@ -616,10 +620,16 @@ public sealed class CodeRecording : IAsyncDisposable
             {
                 this.pending = action.WithEffect(null, "RunAndWaitForNavigationAsync") with { Navigated = true };
             }
-            else if (!reported && (page.Opener is null || this.actedPages.Contains(page)))
+            else if ((!reported || steps is not null) && (page.Opener is null || this.actedPages.Contains(page)))
             {
+                string call = steps switch
+                {
+                    -1 => "GoBackAsync()",
+                    1 => "GoForwardAsync()",
+                    _ => $"NavigateAsync({CodeWriter.Literal(started.Url)})",
+                };
                 settled.AddRange(this.TakePending());
-                settled.Add(new($"await {this.GetPageVariable(page, settled)}.NavigateAsync({CodeWriter.Literal(started.Url)});", []));
+                settled.Add(new($"await {this.GetPageVariable(page, settled)}.{call};", []));
             }
         });
     }
@@ -897,7 +907,8 @@ public sealed class CodeRecording : IAsyncDisposable
 
     // An action's or an assertion's statement; a step with a merge key replaces the pending step with the same key: a
     // fill of the same field, or the next click of the same series, unless an effect or a dialog was attached to it.
-    // An assertion settles at once. An action's call, on its page, can be wrapped in a wait for what it causes.
+    // An assertion settles at once. An action's call, on its page, can be wrapped in a wait for what it causes. A note
+    // above the statement, such as one for files known only by their names, does not stop a replacement.
     private sealed record RecordedStep(string Statement, IReadOnlyList<string> Namespaces, string? MergeKey = null, int ClickCount = 0, bool SettlesAtOnce = false)
     {
         public string? Call { get; init; }
@@ -914,7 +925,9 @@ public sealed class CodeRecording : IAsyncDisposable
 
         public IReadOnlyList<string> Comments { get; init; } = [];
 
-        public string Text => string.Join("\n", [.. this.Comments, this.Statement]);
+        public string? Note { get; init; }
+
+        public string Text => string.Join("\n", [.. this.Note is null ? [] : new[] { this.Note }, .. this.Comments, this.Statement]);
 
         public bool Replaces(RecordedStep earlier)
         {
