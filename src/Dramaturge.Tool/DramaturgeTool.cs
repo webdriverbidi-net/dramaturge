@@ -7,6 +7,7 @@ namespace Dramaturge.Tool;
 
 using System.CommandLine;
 using System.CommandLine.Help;
+using System.CommandLine.Parsing;
 using System.Globalization;
 using System.Text.Json;
 using Dramaturge.Browsers;
@@ -129,7 +130,19 @@ public static class DramaturgeTool
         Command root = new(CommandName, "Installs, lists, and removes the browsers and drivers that Dramaturge.Browsers caches, records browser actions as C#, and runs browser sessions that commands drive.") { browsers, codegen, session };
         root.Options.Add(new HelpOption());
         root.Options.Add(new VersionOption());
-        return root.Parse(args).InvokeAsync(new InvocationConfiguration() { Output = output, Error = error }, cancellationToken);
+
+        // Arguments that cannot be parsed are a usage error, written as any other command's error would be; an
+        // unrecognized token is the error that matters when there is one.
+        ParseResult parseResult = root.Parse(args);
+        if (parseResult.Errors.Count > 0)
+        {
+            List<ParseError> unrecognized = [.. parseResult.Errors.Where(problem => parseResult.UnmatchedTokens.Any(token => problem.Message.Contains($"'{token}'", StringComparison.Ordinal)))];
+            IEnumerable<ParseError> reported = unrecognized.Count > 0 ? unrecognized : parseResult.Errors;
+            SessionError usage = new(CommandOutput.Usage, string.Join(" ", reported.Select(problem => problem.Message)), $"Run '{CommandPath(parseResult.CommandResult)} --help' for usage.");
+            return Task.FromResult(CommandOutput.Write(CommandOutcome.Failure(usage), args.Contains("--json"), output, error));
+        }
+
+        return parseResult.InvokeAsync(new InvocationConfiguration() { Output = output, Error = error }, cancellationToken);
     }
 
     // The settings start takes are passed on, as they were given, to the serve it starts.
@@ -142,6 +155,7 @@ public static class DramaturgeTool
         Option<string?> userDataDirectoryOption = new("--user-data-dir") { Description = "A profile directory for the browser to keep. By default it gets a temporary one." };
         Option<int> idleTimeoutOption = new("--idle-timeout") { Description = "The minutes the session waits for a command before it stops.", DefaultValueFactory = _ => 30 };
         Option<bool> maskPasswordsOption = new("--mask-passwords") { Description = "Write values typed into, or expected of, password fields in the session's code as a read of the DRAMATURGE_PASSWORD environment variable." };
+        Option<bool> jsonOption = new("--json") { Description = "Write the result, or the error, as one line of JSON." };
         Option<bool> detachedOption = new("--detached") { Hidden = true };
         SessionSettings Settings(ParseResult parseResult) => new(
             parseResult.GetValue(sessionOption)!,
@@ -151,9 +165,11 @@ public static class DramaturgeTool
             parseResult.GetValue(userDataDirectoryOption),
             TimeSpan.FromMinutes(parseResult.GetValue(idleTimeoutOption)),
             parseResult.GetValue(maskPasswordsOption));
+        Func<ParseResult, CancellationToken, Task<int>> Written(Func<ParseResult, CancellationToken, Task<CommandOutcome>> run) =>
+            async (parseResult, token) => CommandOutput.Write(await run(parseResult, token).ConfigureAwait(false), parseResult.GetValue(jsonOption), output, error);
 
-        Command start = new("start", "Start a browser session that later commands drive, and that stops with session stop, when its browser closes, or when it is idle.") { sessionOption, browserOption, channelOption, headedOption, userDataDirectoryOption, idleTimeoutOption, maskPasswordsOption, pathOption };
-        start.SetAction((parseResult, token) => StartSessionAsync(["session", "serve", .. args.Skip(2)], Settings(parseResult), host, output, error, token));
+        Command start = new("start", "Start a browser session that later commands drive, and that stops with session stop, when its browser closes, or when it is idle.") { sessionOption, browserOption, channelOption, headedOption, userDataDirectoryOption, idleTimeoutOption, maskPasswordsOption, pathOption, jsonOption };
+        start.SetAction(Written((parseResult, token) => StartSessionAsync(["session", "serve", .. args.Skip(2)], Settings(parseResult), host, error, token)));
 
         Command serve = new("serve", "Serve a session; session start runs it.") { Hidden = true };
         foreach (Option option in start.Options)
@@ -170,21 +186,20 @@ public static class DramaturgeTool
             host.TimeProvider,
             parseResult.GetValue(detachedOption),
             output,
-            error,
             token));
 
-        Command list = new("list", "List the sessions running.");
-        list.SetAction((parseResult, token) => ListSessionsAsync(host, output, token));
+        Command list = new("list", "List the sessions running.") { jsonOption };
+        list.SetAction(Written((parseResult, token) => ListSessionsAsync(host, token)));
 
-        Command stop = new("stop", "Stop a session, closing its browser.") { sessionOption };
-        stop.SetAction((parseResult, token) => StopSessionAsync(parseResult.GetValue(sessionOption)!, host, output, error, token));
+        Command stop = new("stop", "Stop a session, closing its browser.") { sessionOption, jsonOption };
+        stop.SetAction(Written((parseResult, token) => StopSessionAsync(parseResult.GetValue(sessionOption)!, host, token)));
 
         return new Command("session", "Start, list, and stop browser sessions that commands drive.") { start, list, stop, serve };
     }
 
     // A session already running under the name is left alone; a socket nothing answers is what a session that did not
     // stop cleanly left, and is removed.
-    private static async Task<int> StartSessionAsync(string[] serveArguments, SessionSettings settings, SessionHost host, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    private static async Task<CommandOutcome> StartSessionAsync(string[] serveArguments, SessionSettings settings, SessionHost host, TextWriter progress, CancellationToken cancellationToken)
     {
         string? problem = SessionPaths.CheckName(settings.Name);
         if (problem is null && settings.IdleTimeout <= TimeSpan.Zero)
@@ -203,8 +218,7 @@ public static class DramaturgeTool
 
         if (problem is not null)
         {
-            WriteError(error, new SessionError("usage", problem));
-            return 2;
+            return CommandOutcome.Failure(new SessionError(CommandOutput.Usage, problem));
         }
 
         string socketPath = SessionPaths.SocketPath(SessionPaths.Prepare(host.Directory), settings.Name);
@@ -213,34 +227,32 @@ public static class DramaturgeTool
             SessionReply reply = await SessionClient.SendAsync(socketPath, settings.Name, "status", NoArguments, cancellationToken).ConfigureAwait(false);
             if (reply.Error is null)
             {
-                WriteError(error, new SessionError("session-exists", $"A session named '{settings.Name}' is running.", "Stop it with 'dramaturge session stop', or name another with --session."));
-                return 1;
+                return CommandOutcome.Failure(new SessionError("session-exists", $"A session named '{settings.Name}' is running.", "Stop it with 'dramaturge session stop', or name another with --session."));
             }
 
             File.Delete(socketPath);
         }
 
-        int exitCode = await host.StartDaemon(serveArguments, error, cancellationToken).ConfigureAwait(false);
-        if (exitCode == 0)
+        if (await host.StartDaemon(serveArguments, progress, cancellationToken).ConfigureAwait(false) is string failure)
         {
-            output.WriteLine($"Started session '{settings.Name}' ({settings.Browser.ToString().ToLowerInvariant()}).");
+            return CommandOutcome.Failure(new SessionError("start-failed", failure));
         }
 
-        return exitCode;
+        string browser = settings.Browser.ToString().ToLowerInvariant();
+        return CommandOutcome.Success(new Dictionary<string, object?>() { ["name"] = settings.Name, ["browser"] = browser }, $"Started session '{settings.Name}' ({browser}).");
     }
 
     // Each socket that answers is a session running; one that does not is removed.
-    private static async Task<int> ListSessionsAsync(SessionHost host, TextWriter output, CancellationToken cancellationToken)
+    private static async Task<CommandOutcome> ListSessionsAsync(SessionHost host, CancellationToken cancellationToken)
     {
-        int running = 0;
+        List<Dictionary<string, object?>> sessions = [];
         foreach (string socketPath in Directory.GetFiles(SessionPaths.Prepare(host.Directory), "*.sock").Order(StringComparer.Ordinal))
         {
             string name = Path.GetFileNameWithoutExtension(socketPath);
             SessionReply reply = await SessionClient.SendAsync(socketPath, name, "status", NoArguments, cancellationToken).ConfigureAwait(false);
             if (reply.Result is JsonElement status)
             {
-                output.WriteLine($"{name}\t{status.GetProperty("browser").GetString()}\tstarted {status.GetProperty("started").GetString()}");
-                running++;
+                sessions.Add(new Dictionary<string, object?>() { ["name"] = name, ["browser"] = status.GetProperty("browser").GetString(), ["started"] = status.GetProperty("started").GetString() });
             }
             else
             {
@@ -248,20 +260,15 @@ public static class DramaturgeTool
             }
         }
 
-        if (running == 0)
-        {
-            output.WriteLine("No sessions are running.");
-        }
-
-        return 0;
+        string[] text = sessions.Count == 0 ? ["No sessions are running."] : [.. sessions.Select(session => $"{session["name"]}\t{session["browser"]}\tstarted {session["started"]}")];
+        return CommandOutcome.Success(new Dictionary<string, object?>() { ["sessions"] = sessions }, text);
     }
 
-    private static async Task<int> StopSessionAsync(string name, SessionHost host, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    private static async Task<CommandOutcome> StopSessionAsync(string name, SessionHost host, CancellationToken cancellationToken)
     {
         if (SessionPaths.CheckName(name) is string problem)
         {
-            WriteError(error, new SessionError("usage", problem));
-            return 2;
+            return CommandOutcome.Failure(new SessionError(CommandOutput.Usage, problem));
         }
 
         string socketPath = SessionPaths.SocketPath(SessionPaths.Prepare(host.Directory), name);
@@ -269,17 +276,15 @@ public static class DramaturgeTool
         if (reply.Error is SessionError failure)
         {
             File.Delete(socketPath);
-            WriteError(error, failure);
-            return failure.Code == SessionClient.NoSession ? 3 : 1;
+            return CommandOutcome.Failure(failure);
         }
 
-        output.WriteLine($"Stopped session '{name}'.");
-        return 0;
+        return CommandOutcome.Success(new Dictionary<string, object?>() { ["name"] = name }, $"Stopped session '{name}'.");
     }
 
-    private static void WriteError(TextWriter error, SessionError failure)
+    private static string CommandPath(System.CommandLine.Parsing.CommandResult command)
     {
-        error.WriteLine(failure.Hint is null ? $"error[{failure.Code}]: {failure.Message}" : $"error[{failure.Code}]: {failure.Message} — {failure.Hint}");
+        return command.Parent is System.CommandLine.Parsing.CommandResult parent ? $"{CommandPath(parent)} {command.Command.Name}" : command.Command.Name;
     }
 
     private static BrowserDownloadOptions CreateDefaultDownloadOptions(string? path, IProgress<BrowserDownloadProgress> progress)

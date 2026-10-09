@@ -5,8 +5,10 @@
 
 namespace Dramaturge.Tool.Sessions;
 
+using System.Collections;
 using System.Globalization;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 
 /// <summary>
@@ -16,6 +18,9 @@ using System.Text.Json;
 /// </summary>
 internal static class SessionWire
 {
+    // The messages are read by programs, never placed in HTML, so only what JSON requires is escaped.
+    private static readonly JsonWriterOptions WriterOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
     /// <summary>
     /// Writes a request.
     /// </summary>
@@ -38,7 +43,7 @@ internal static class SessionWire
     /// <returns>A task that completes when the response is written.</returns>
     public static Task WriteResultAsync(Stream stream, IReadOnlyDictionary<string, object?> result, CancellationToken cancellationToken)
     {
-        return WriteLineAsync(stream, new Dictionary<string, object?>() { ["ok"] = true, ["result"] = result }, cancellationToken);
+        return WriteLineAsync(stream, ResultMessage(result), cancellationToken);
     }
 
     /// <summary>
@@ -50,9 +55,22 @@ internal static class SessionWire
     /// <returns>A task that completes when the response is written.</returns>
     public static Task WriteErrorAsync(Stream stream, SessionError error, CancellationToken cancellationToken)
     {
-        Dictionary<string, object?> details = new() { ["code"] = error.Code, ["message"] = error.Message, ["hint"] = error.Hint };
-        return WriteLineAsync(stream, new Dictionary<string, object?>() { ["ok"] = false, ["error"] = details }, cancellationToken);
+        return WriteLineAsync(stream, ErrorMessage(error), cancellationToken);
     }
+
+    /// <summary>
+    /// Gets a response that succeeded, as JSON.
+    /// </summary>
+    /// <param name="result">The result.</param>
+    /// <returns>The JSON.</returns>
+    public static string Result(IReadOnlyDictionary<string, object?> result) => Encoding.UTF8.GetString(Serialize(ResultMessage(result)));
+
+    /// <summary>
+    /// Gets a response that failed, as JSON.
+    /// </summary>
+    /// <param name="error">The error.</param>
+    /// <returns>The JSON.</returns>
+    public static string Error(SessionError error) => Encoding.UTF8.GetString(Serialize(ErrorMessage(error)));
 
     /// <summary>
     /// Reads one line of JSON.
@@ -80,20 +98,33 @@ internal static class SessionWire
         }
     }
 
+    private static Dictionary<string, object?> ResultMessage(IReadOnlyDictionary<string, object?> result) => new() { ["ok"] = true, ["result"] = result };
+
+    private static Dictionary<string, object?> ErrorMessage(SessionError error)
+    {
+        Dictionary<string, object?> details = new() { ["code"] = error.Code, ["message"] = error.Message, ["hint"] = error.Hint };
+        return new Dictionary<string, object?>() { ["ok"] = false, ["error"] = details };
+    }
+
     private static async Task WriteLineAsync(Stream stream, IReadOnlyDictionary<string, object?> message, CancellationToken cancellationToken)
     {
+        byte[] line = [.. Serialize(message), (byte)'\n'];
+        await stream.WriteAsync(line, cancellationToken).ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static byte[] Serialize(IReadOnlyDictionary<string, object?> message)
+    {
         using MemoryStream buffer = new();
-        using (Utf8JsonWriter writer = new(buffer))
+        using (Utf8JsonWriter writer = new(buffer, WriterOptions))
         {
             WriteValue(writer, message);
         }
 
-        buffer.WriteByte((byte)'\n');
-        await stream.WriteAsync(buffer.ToArray(), cancellationToken).ConfigureAwait(false);
-        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        return buffer.ToArray();
     }
 
-    // The values a message holds: strings, booleans, times, nulls, and objects.
+    // The values a message holds: strings, booleans, times, nulls, objects, and lists.
     private static void WriteValue(Utf8JsonWriter writer, object? value)
     {
         switch (value)
@@ -110,15 +141,24 @@ internal static class SessionWire
             case DateTimeOffset time:
                 writer.WriteStringValue(time.ToString("O", CultureInfo.InvariantCulture));
                 break;
-            default:
+            case IReadOnlyDictionary<string, object?> properties:
                 writer.WriteStartObject();
-                foreach (KeyValuePair<string, object?> property in (IReadOnlyDictionary<string, object?>)value)
+                foreach (KeyValuePair<string, object?> property in properties)
                 {
                     writer.WritePropertyName(property.Key);
                     WriteValue(writer, property.Value);
                 }
 
                 writer.WriteEndObject();
+                break;
+            default:
+                writer.WriteStartArray();
+                foreach (object? item in (IEnumerable)value)
+                {
+                    WriteValue(writer, item);
+                }
+
+                writer.WriteEndArray();
                 break;
         }
     }

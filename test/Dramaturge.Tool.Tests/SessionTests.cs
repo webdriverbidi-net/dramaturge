@@ -86,6 +86,29 @@ public sealed class SessionTests : IAsyncLifetime
         Assert.Equal(2, this.Daemons().Count);
     }
 
+    // Each result, or error, is one line of JSON on the output, and the exit code is as for text.
+    [Fact]
+    public async Task JsonWritesTheResultOrTheErrorAsOneLine()
+    {
+        ToolResult start = await this.RunAsync("session", "start", "--json");
+        ToolResult list = await this.RunAsync("session", "list", "--json");
+        ToolResult again = await this.RunAsync("session", "start", "--json");
+        ToolResult stop = await this.RunAsync("session", "stop", "--json");
+        ToolResult none = await this.RunAsync("session", "stop", "--json");
+        ToolResult usage = await this.RunAsync("session", "start", "--idle-timeout", "soon", "--json");
+
+        Assert.Equal("{\"ok\":true,\"result\":{\"name\":\"default\",\"browser\":\"chrome\"}}", start.Output.Trim());
+        Assert.Equal($"{{\"ok\":true,\"result\":{{\"sessions\":[{{\"name\":\"default\",\"browser\":\"chrome\",\"started\":\"{this.time.GetUtcNow():O}\"}}]}}}}", list.Output.Trim());
+        Assert.Equal(1, again.ExitCode);
+        Assert.Equal("{\"ok\":false,\"error\":{\"code\":\"session-exists\",\"message\":\"A session named 'default' is running.\",\"hint\":\"Stop it with 'dramaturge session stop', or name another with --session.\"}}", again.Output.Trim());
+        Assert.Equal("{\"ok\":true,\"result\":{\"name\":\"default\"}}", stop.Output.Trim());
+        Assert.Equal(3, none.ExitCode);
+        Assert.Contains("\"code\":\"no-session\"", none.Output);
+        Assert.Equal(2, usage.ExitCode);
+        Assert.Equal("{\"ok\":false,\"error\":{\"code\":\"usage\",\"message\":\"Cannot parse argument 'soon' for option '--idle-timeout' as expected type 'System.Int32'.\",\"hint\":\"Run 'dramaturge session start --help' for usage.\"}}", usage.Output.Trim());
+        Assert.All([start, list, again, stop, none, usage], result => Assert.Empty(result.Error));
+    }
+
     [Fact]
     public async Task StoppingASessionThatIsNotRunningIsExitCodeThree()
     {
@@ -187,7 +210,7 @@ public sealed class SessionTests : IAsyncLifetime
         ToolResult start = await this.RunAsync("session", "start", "--session", Broken);
 
         Assert.Equal(1, start.ExitCode);
-        Assert.Contains("The browser could not be started", start.Error);
+        Assert.StartsWith("error[start-failed]: The browser could not be started: ", start.Error);
         Assert.Empty(start.OutputLines);
         Assert.Empty(Directory.GetFiles(this.directory));
     }
@@ -281,7 +304,7 @@ public sealed class SessionTests : IAsyncLifetime
     }
 
     // Serves the session in this process until it ends, answering as soon as it is ready or has failed.
-    private async Task<int> StartDaemonAsync(IReadOnlyList<string> serveArguments, TextWriter error, CancellationToken cancellationToken)
+    private async Task<string?> StartDaemonAsync(IReadOnlyList<string> serveArguments, TextWriter error, CancellationToken cancellationToken)
     {
         string name = serveArguments.SkipWhile(argument => argument != "--session").Skip(1).FirstOrDefault() ?? "default";
         Uri browser = name == Broken ? new Uri("ws://127.0.0.1:1/unreachable") : this.server.UrlFor(name);
@@ -292,23 +315,26 @@ public sealed class SessionTests : IAsyncLifetime
             this.daemons.Add(serving);
         }
 
-        await Task.WhenAny(ready.Ready, serving);
-        return serving.IsCompleted ? await serving : 0;
+        return await ready.Said;
     }
 
-    // Completes when the daemon says it is ready.
+    // Completes when the daemon says it is ready, with null, or that it failed, with why.
     private sealed class ReadyWriter : StringWriter
     {
-        private readonly TaskCompletionSource ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<string?> said = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public Task Ready => this.ready.Task;
+        public Task<string?> Said => this.said.Task;
 
         public override void WriteLine(string? value)
         {
             base.WriteLine(value);
             if (value == "ready")
             {
-                this.ready.TrySetResult();
+                this.said.TrySetResult(null);
+            }
+            else if (value?.StartsWith("failed ", StringComparison.Ordinal) == true)
+            {
+                this.said.TrySetResult(value.Substring("failed ".Length));
             }
         }
     }

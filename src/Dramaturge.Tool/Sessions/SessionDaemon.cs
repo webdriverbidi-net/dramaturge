@@ -42,11 +42,10 @@ internal sealed class SessionDaemon
     /// <param name="directory">The sessions' directory.</param>
     /// <param name="time">The clock of the idle timeout.</param>
     /// <param name="detached">A value indicating whether the daemon runs as a process of its own, which detaches from the one that started it and stops when signalled.</param>
-    /// <param name="output">The writer the daemon says it is ready on.</param>
-    /// <param name="error">The writer for errors before it is ready.</param>
+    /// <param name="output">The writer the daemon says on, in one line, that it is <c>ready</c>, or that it <c>failed</c>, and why.</param>
     /// <param name="cancellationToken">A token that stops the daemon.</param>
     /// <returns>A task whose result is the exit code: 0 when the session ended, and 1 when it could not start.</returns>
-    public static async Task<int> ServeAsync(SessionSettings settings, BrowserDownloadOptions downloadOptions, Func<BrowserLauncherBuilder, BrowserLauncherBuilder> configureLauncher, string directory, TimeProvider time, bool detached, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    public static async Task<int> ServeAsync(SessionSettings settings, BrowserDownloadOptions downloadOptions, Func<BrowserLauncherBuilder, BrowserLauncherBuilder> configureLauncher, string directory, TimeProvider time, bool detached, TextWriter output, CancellationToken cancellationToken)
     {
         using CancellationTokenSource stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         List<IDisposable> signals = Detach(detached, stopping.Cancel);
@@ -70,7 +69,8 @@ internal sealed class SessionDaemon
             }
             catch (Exception ex) when (ex is WebDriverBiDiException or OperationCanceledException)
             {
-                error.WriteLine($"The browser could not be started: {ex.Message}");
+                output.WriteLine($"failed The browser could not be started: {ex.Message}");
+                output.Flush();
                 return 1;
             }
 
