@@ -9,6 +9,7 @@ using System.Text.Json.Nodes;
 using Dramaturge.TestUtilities;
 using WebDriverBiDi;
 using WebDriverBiDi.BrowsingContext;
+using static Dramaturge.Assertions;
 using static Dramaturge.TestUtilities.RecorderMessages;
 
 // No locator candidate resolves on the fake, so each element is located by its CSS path.
@@ -241,6 +242,31 @@ public class CodeRecordingEffectsTests
                 "await page.GoForwardAsync();",
             ],
             Statements(code));
+    }
+
+    [Fact]
+    public async Task MetPageAssertionsAreRecordedUnlessNegatedOrIgnoringCase()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+
+        await page.NavigateAsync("https://example.com/", ReadinessState.None, cancellationToken: TestContext.Current.CancellationToken);
+        await SendAsync(driver, session, channel, page.Id, Click("#go"));
+        await Expect(page).ToHaveUrlAsync("https://example.com/", cancellationToken: TestContext.Current.CancellationToken);
+        await Expect(page).ToHaveUrlAsync("HTTPS://EXAMPLE.COM/", ignoreCase: true, cancellationToken: TestContext.Current.CancellationToken);
+        await Expect(page).Not.ToHaveUrlAsync("https://example.com/other", cancellationToken: TestContext.Current.CancellationToken);
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                "await page.NavigateAsync(\"https://example.com/\");",
+                "await page.Locate(new CssLocator(\"#go\")).ClickAsync();",
+                "await Expect(page).ToHaveUrlAsync(\"https://example.com/\");",
+            ],
+            Statements(code));
+        Assert.Contains("using static Dramaturge.Assertions;", code);
     }
 
     [Fact]

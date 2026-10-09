@@ -42,9 +42,10 @@ public sealed class PageAssertions
     /// <returns>A task that completes when the expectation is met.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the page is closed while waiting.</exception>
     /// <exception cref="ExpectationFailedException">Thrown when the expectation is not met in time.</exception>
-    public Task ToHaveUrlAsync(string expected, bool ignoreCase = false, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+    public async Task ToHaveUrlAsync(string expected, bool ignoreCase = false, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.ExpectUrlAsync(TextPattern.For(expected, ignoreCase), timeout, cancellationToken);
+        await this.ExpectUrlAsync(TextPattern.For(expected, ignoreCase), timeout, cancellationToken).ConfigureAwait(false);
+        this.Record(ignoreCase, $"ToHaveUrlAsync({CodeWriter.Literal(expected)})");
     }
 
     /// <summary>
@@ -71,9 +72,10 @@ public sealed class PageAssertions
     /// <param name="cancellationToken">A token that cancels the expectation.</param>
     /// <returns>A task that completes when the expectation is met.</returns>
     /// <exception cref="ExpectationFailedException">Thrown when the expectation is not met in time.</exception>
-    public Task ToHaveTitleAsync(string expected, bool ignoreCase = false, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+    public async Task ToHaveTitleAsync(string expected, bool ignoreCase = false, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.ExpectTitleAsync(TextPattern.For(TextPattern.Normalize(expected), ignoreCase), timeout, cancellationToken);
+        await this.ExpectTitleAsync(TextPattern.For(TextPattern.Normalize(expected), ignoreCase), timeout, cancellationToken).ConfigureAwait(false);
+        this.Record(ignoreCase, $"ToHaveTitleAsync({CodeWriter.Literal(expected)})");
     }
 
     /// <summary>
@@ -87,6 +89,15 @@ public sealed class PageAssertions
     public Task ToHaveTitleAsync(Regex expected, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         return this.ExpectTitleAsync(TextPattern.For(expected), timeout, cancellationToken);
+    }
+
+    // A met expectation is recorded by a browser recording code, unless it is negated or ignores case.
+    private void Record(bool ignoreCase, string call)
+    {
+        if (!this.isNot && !ignoreCase)
+        {
+            CodeRecording.RecordPageAssertion(this.page, call);
+        }
     }
 
     private string Describe(string expected)

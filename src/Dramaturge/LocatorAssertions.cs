@@ -43,7 +43,7 @@ public sealed class LocatorAssertions
     /// <exception cref="ExpectationFailedException">Thrown when the expectation is not met in time.</exception>
     public Task ToBeVisibleAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.ExpectElementAsync("to be visible", false, timeout, cancellationToken, this.ObserveVisibilityAsync(true));
+        return this.ExpectElementAsync("to be visible", false, timeout, cancellationToken, this.ObserveVisibilityAsync(true), this.Assertion("assertVisible", LocalValue.Null));
     }
 
     /// <summary>
@@ -123,7 +123,7 @@ public sealed class LocatorAssertions
     /// <exception cref="ExpectationFailedException">Thrown when the expectation is not met in time.</exception>
     public Task ToBeCheckedAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.ExpectStateAsync("to be checked", "checked", "checked", timeout, cancellationToken);
+        return this.ExpectStateAsync("to be checked", "checked", "checked", timeout, cancellationToken, this.Assertion("assertChecked", LocalValue.Boolean(!this.isNot), recordsNegation: true));
     }
 
     /// <summary>
@@ -275,7 +275,7 @@ public sealed class LocatorAssertions
     /// <exception cref="ExpectationFailedException">Thrown when the expectation is not met in time.</exception>
     public Task ToContainTextAsync(string expected, bool ignoreCase = false, bool useInnerText = false, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.ExpectTextAsync("to contain text", TextPattern.For(TextPattern.Normalize(expected), ignoreCase, true), useInnerText, timeout, cancellationToken);
+        return this.ExpectTextAsync("to contain text", TextPattern.For(TextPattern.Normalize(expected), ignoreCase, true), useInnerText, timeout, cancellationToken, ignoreCase || useInnerText ? null : this.Assertion("assertText", LocalValue.String(expected)));
     }
 
     /// <summary>
@@ -339,7 +339,7 @@ public sealed class LocatorAssertions
     /// <exception cref="ExpectationFailedException">Thrown when the expectation is not met in time.</exception>
     public Task ToHaveValueAsync(string expected, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.ExpectValueAsync(TextPattern.For(expected), timeout, cancellationToken);
+        return this.ExpectValueAsync(TextPattern.For(expected), timeout, cancellationToken, this.Assertion("assertValue", LocalValue.String(expected)));
     }
 
     /// <summary>
@@ -533,9 +533,10 @@ public sealed class LocatorAssertions
                 }
 
                 (bool matches, string actual) = await this.locator.MatchAriaSnapshotAsync(node, expected, budget).ConfigureAwait(false);
-                return new Observation(matches, actual, matches ? "the snapshot matched" : "the snapshot did not match");
+                return new Observation(matches, actual, matches ? "the snapshot matched" : "the snapshot did not match", node);
             },
-            actual => this.isNot ? $"\nReceived:\n{actual}" : $"\n- expected\n+ received\n\n{LineDiff.Describe(expected, actual)}");
+            actual => this.isNot ? $"\nReceived:\n{actual}" : $"\n- expected\n+ received\n\n{LineDiff.Describe(expected, actual)}",
+            this.Assertion("assertSnapshot", LocalValue.String(expected)));
     }
 
     // Each pattern must match a later text than the one before it.
@@ -566,13 +567,26 @@ public sealed class LocatorAssertions
         return this.isNot ? $"not {expected}" : expected;
     }
 
-    private Task ExpectElementAsync(string expected, bool holdsWithoutElement, TimeSpan? timeout, CancellationToken cancellationToken, Func<NodeRemoteValue, TimeBudget, Task<Observation?>> observe)
+    // An assertion the code recorder writes, of a kind with its value, is recorded when it is met, unless it is
+    // negated where its kind cannot say so.
+    private Func<NodeRemoteValue, TimeBudget, Task>? Assertion(string kind, LocalValue value, bool recordsNegation = false)
     {
-        return this.locator.ExpectAsync(this.Describe(expected), this.isNot, timeout, cancellationToken, async budget =>
-        {
-            NodeRemoteValue? node = await this.locator.FindOneAsync(budget).ConfigureAwait(false);
-            return node is null ? new Observation(holdsWithoutElement, null) : await observe(node, budget).ConfigureAwait(false);
-        });
+        return this.isNot && !recordsNegation ? null : (node, budget) => this.locator.ReportToRecordingAsync(node, "(recorder, element, kind, value) => recorder.reportAssertion(element, kind, value)", [LocalValue.String(kind), value], budget);
+    }
+
+    private Task ExpectElementAsync(string expected, bool holdsWithoutElement, TimeSpan? timeout, CancellationToken cancellationToken, Func<NodeRemoteValue, TimeBudget, Task<Observation?>> observe, Func<NodeRemoteValue, TimeBudget, Task>? report = null)
+    {
+        return this.locator.ExpectAsync(
+            this.Describe(expected),
+            this.isNot,
+            timeout,
+            cancellationToken,
+            async budget =>
+            {
+                NodeRemoteValue? node = await this.locator.FindOneAsync(budget).ConfigureAwait(false);
+                return node is null ? new Observation(holdsWithoutElement, null) : (await observe(node, budget).ConfigureAwait(false)) is Observation observation ? observation with { Element = node } : null;
+            },
+            report: report);
     }
 
     private Func<NodeRemoteValue, TimeBudget, Task<Observation?>> ObserveVisibilityAsync(bool visible)
@@ -585,22 +599,34 @@ public sealed class LocatorAssertions
     }
 
     // An element removed while it is checked is checked again.
-    private Task ExpectStateAsync(string expected, string state, string holdsWhen, TimeSpan? timeout, CancellationToken cancellationToken)
+    private Task ExpectStateAsync(string expected, string state, string holdsWhen, TimeSpan? timeout, CancellationToken cancellationToken, Func<NodeRemoteValue, TimeBudget, Task>? report = null)
     {
-        return this.ExpectElementAsync(expected, false, timeout, cancellationToken, async (node, budget) =>
-        {
-            string? received = await this.locator.ReadElementStateAsync(node, state, budget).ConfigureAwait(false);
-            return received is null ? null : new Observation(received == holdsWhen, received == "readOnly" ? "read-only" : received);
-        });
+        return this.ExpectElementAsync(
+            expected,
+            false,
+            timeout,
+            cancellationToken,
+            async (node, budget) =>
+            {
+                string? received = await this.locator.ReadElementStateAsync(node, state, budget).ConfigureAwait(false);
+                return received is null ? null : new Observation(received == holdsWhen, received == "readOnly" ? "read-only" : received);
+            },
+            report);
     }
 
-    private Task ExpectTextAsync(string expected, TextPattern pattern, bool useInnerText, TimeSpan? timeout, CancellationToken cancellationToken)
+    private Task ExpectTextAsync(string expected, TextPattern pattern, bool useInnerText, TimeSpan? timeout, CancellationToken cancellationToken, Func<NodeRemoteValue, TimeBudget, Task>? report = null)
     {
-        return this.ExpectElementAsync($"{expected} {pattern.Description}", false, timeout, cancellationToken, async (node, budget) =>
-        {
-            string text = (await this.ReadTextsAsync([node], useInnerText, budget).ConfigureAwait(false))[0];
-            return new Observation(pattern.Matches(text), TextPattern.Quote(text));
-        });
+        return this.ExpectElementAsync(
+            $"{expected} {pattern.Description}",
+            false,
+            timeout,
+            cancellationToken,
+            async (node, budget) =>
+            {
+                string text = (await this.ReadTextsAsync([node], useInnerText, budget).ConfigureAwait(false))[0];
+                return new Observation(pattern.Matches(text), TextPattern.Quote(text));
+            },
+            report);
     }
 
     // Not strict: every matching element is read, in one call.
@@ -622,13 +648,19 @@ public sealed class LocatorAssertions
         return [.. texts.Select(text => TextPattern.Normalize(text ?? throw new InvalidOperationException($"{this.locator} matches an element that is not an HTML element.")))];
     }
 
-    private Task ExpectValueAsync(TextPattern pattern, TimeSpan? timeout, CancellationToken cancellationToken)
+    private Task ExpectValueAsync(TextPattern pattern, TimeSpan? timeout, CancellationToken cancellationToken, Func<NodeRemoteValue, TimeBudget, Task>? report = null)
     {
-        return this.ExpectElementAsync($"to have value {pattern.Description}", false, timeout, cancellationToken, async (node, budget) =>
-        {
-            string value = await this.locator.ReadValueAsync(node, budget).ConfigureAwait(false);
-            return new Observation(pattern.Matches(value), TextPattern.Quote(value));
-        });
+        return this.ExpectElementAsync(
+            $"to have value {pattern.Description}",
+            false,
+            timeout,
+            cancellationToken,
+            async (node, budget) =>
+            {
+                string value = await this.locator.ReadValueAsync(node, budget).ConfigureAwait(false);
+                return new Observation(pattern.Matches(value), TextPattern.Quote(value));
+            },
+            report);
     }
 
     // Without a pattern, any value of the attribute holds.

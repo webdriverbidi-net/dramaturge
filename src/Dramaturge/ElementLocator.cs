@@ -922,13 +922,28 @@ public sealed class ElementLocator
     /// <param name="cancellationToken">A token that cancels the expectation.</param>
     /// <param name="observe">One check, returning <see langword="null"/> when the element was removed while it was checked.</param>
     /// <param name="describeDetails">Describes what the last check saw, in lines after the failure message's first, or <see langword="null"/> for none.</param>
+    /// <param name="report">Reports the met expectation to a browser recording code, given the element it checked, or <see langword="null"/> when it is not recorded.</param>
     /// <returns>A task that completes when the expectation is met.</returns>
     /// <exception cref="ExpectationFailedException">Thrown when the expectation is not met in time.</exception>
-    internal Task ExpectAsync(string expected, bool isNot, TimeSpan? timeout, CancellationToken cancellationToken, Func<TimeBudget, Task<Observation?>> observe, Func<string, string>? describeDetails = null)
+    internal Task ExpectAsync(string expected, bool isNot, TimeSpan? timeout, CancellationToken cancellationToken, Func<TimeBudget, Task<Observation?>> observe, Func<string, string>? describeDetails = null, Func<NodeRemoteValue, TimeBudget, Task>? report = null)
     {
         TimeBudget budget = new(timeout ?? this.Group.Options.ExpectTimeout, this.Group.Options.TimeProvider, cancellationToken);
         TracedCall call = TraceRecording.Call("Expect", $"Expect {expected}", "{locator}", "expect", new TraceParameter("locator", this.ToString()));
-        return this.TraceAsync(call, budget, actionBudget => this.ExpectCoreAsync(expected, isNot, observe, describeDetails, actionBudget));
+        return this.TraceAsync(call, budget, actionBudget => this.ExpectCoreAsync(expected, isNot, observe, describeDetails, report, actionBudget));
+    }
+
+    /// <summary>
+    /// Tells a browser recording code of an action or an assertion on an element, whose events the page does not take
+    /// for the user's, through a function of the code recorder.
+    /// </summary>
+    /// <param name="node">The element.</param>
+    /// <param name="function">The function, taking the code recorder, the element, and then the arguments.</param>
+    /// <param name="arguments">The arguments after the element.</param>
+    /// <param name="budget">The time the call may take.</param>
+    /// <returns>A task that completes when the recorder has been told.</returns>
+    internal Task ReportToRecordingAsync(NodeRemoteValue node, string function, IReadOnlyList<LocalValue> arguments, TimeBudget budget)
+    {
+        return this.Frame.Page.Browser.ActiveCodeRecording is null ? Task.CompletedTask : this.Group.ScriptHost.CallRecorderAsync(this.Frame.Id, function, [node.ToSharedReference(), .. arguments], budget);
     }
 
     /// <summary>
@@ -1177,20 +1192,15 @@ public sealed class ElementLocator
         return TraceRecording.RunAsync(this.Frame.Page.Browser, this.Frame.Page, budget, call, action);
     }
 
-    // The page does not take the events of some actions for the user's, so a browser recording code is told of them.
-    private Task ReportToRecordingAsync(NodeRemoteValue node, string function, IReadOnlyList<LocalValue> arguments, TimeBudget budget)
-    {
-        return this.Frame.Page.Browser.ActiveCodeRecording is null ? Task.CompletedTask : this.Group.ScriptHost.CallRecorderAsync(this.Frame.Id, function, [node.ToSharedReference(), .. arguments], budget);
-    }
-
     private Task RecordTargetAsync(NodeRemoteValue node, TimeBudget budget)
     {
         return budget.Trace is ActionTrace trace ? trace.TargetAsync(this.Frame, node, null) : Task.CompletedTask;
     }
 
-    private async Task ExpectCoreAsync(string expected, bool isNot, Func<TimeBudget, Task<Observation?>> observe, Func<string, string>? describeDetails, TimeBudget budget)
+    private async Task ExpectCoreAsync(string expected, bool isNot, Func<TimeBudget, Task<Observation?>> observe, Func<string, string>? describeDetails, Func<NodeRemoteValue, TimeBudget, Task>? report, TimeBudget budget)
     {
         string? actual = null;
+        NodeRemoteValue? element = null;
         (bool met, bool _, string? observed) = await this.TryPollAsync<bool>(budget, async () =>
         {
             Observation? observation = await observe(budget).ConfigureAwait(false);
@@ -1200,6 +1210,7 @@ public sealed class ElementLocator
             }
 
             actual = observation.Actual;
+            element = observation.Element;
             bool holds = observation.Holds != isNot;
             return new(holds, holds, actual is null ? "no element matched" : observation.Summary ?? $"received {actual}");
         }).ConfigureAwait(false);
@@ -1207,6 +1218,11 @@ public sealed class ElementLocator
         {
             string details = actual is not null && describeDetails is not null ? describeDetails(actual) : string.Empty;
             throw new ExpectationFailedException($"Expected {this} {expected}; {observed} after {budget.Duration.TotalSeconds} seconds.{details}", expected, actual, budget.Duration);
+        }
+
+        if (report is not null && element is not null)
+        {
+            await report(element, budget).ConfigureAwait(false);
         }
     }
 

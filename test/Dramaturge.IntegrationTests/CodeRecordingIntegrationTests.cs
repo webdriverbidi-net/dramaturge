@@ -10,6 +10,7 @@ using Dramaturge.Browsers;
 using Dramaturge.TestUtilities;
 using WebDriverBiDi.BrowsingContext;
 using WebDriverBiDi.Input;
+using static Dramaturge.Assertions;
 
 public class CodeRecordingIntegrationTests
 {
@@ -310,6 +311,57 @@ public class CodeRecordingIntegrationTests
                 "await page.ReloadAsync();",
                 "await page.GetByRole(\"combobox\", \"Color\").SelectOptionAsync([SelectOption.ByValue(\"g\")]);",
                 $"await page.GetByLabel(\"File\").SetInputFilesAsync([{JsonSerializer.Serialize(upload)}]);",
+            ],
+            statements);
+    }
+
+    // Assertions of the kinds the toolbar adds, and the page's URL and title, are recorded once they are met; others are not.
+    [Theory]
+    [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
+    public async Task MetAssertionsAreRecorded(BrowserKind browserKind)
+    {
+        await using TestPageServer server = await TestPageServer.StartAsync();
+        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string url = server.UrlFor("recording.html");
+        await page.NavigateAsync(url, cancellationToken: TestContext.Current.CancellationToken);
+        CodeRecording recording = await group.DefaultBrowser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        List<string> statements = [];
+        recording.OnStatement.AddObserver(e => statements.Add(e.Statement));
+        ElementLocator name = page.Locate(new CssLocator("#name"));
+        ElementLocator agree = page.Locate(new CssLocator("#agree"));
+        ElementLocator message = page.Locate(new CssLocator("#message"));
+
+        await name.FillAsync("Ada", cancellationToken: TestContext.Current.CancellationToken);
+        await Expect(name).ToHaveValueAsync("Ada", cancellationToken: TestContext.Current.CancellationToken);
+        await agree.CheckAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await Expect(agree).ToBeCheckedAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await Expect(message).ToBeVisibleAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await Expect(message).ToContainTextAsync("Hell", cancellationToken: TestContext.Current.CancellationToken);
+        await Expect(page.Locate(new CssLocator("#list"))).ToMatchAriaSnapshotAsync("- listitem: One", cancellationToken: TestContext.Current.CancellationToken);
+        await Expect(page).ToHaveTitleAsync("Recording", cancellationToken: TestContext.Current.CancellationToken);
+        await Expect(page).ToHaveUrlAsync(url, cancellationToken: TestContext.Current.CancellationToken);
+        await Expect(page.Locate(new CssLocator("#go"))).ToBeEnabledAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await Expect(message).Not.ToBeHiddenAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await agree.UncheckAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await Expect(agree).Not.ToBeCheckedAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        // Firefox cannot look elements up by their rendered text, so the paragraph is found by its role there.
+        string paragraph = browserKind == BrowserKind.Chrome ? "page.GetByText(\"Hello\")" : "page.GetByRole(\"paragraph\")";
+        Assert.Equal(
+            [
+                "await page.GetByRole(\"textbox\", \"Name\").FillAsync(\"Ada\");",
+                "await Expect(page.GetByRole(\"textbox\", \"Name\")).ToHaveValueAsync(\"Ada\");",
+                "await page.GetByRole(\"checkbox\", \"Agree\").CheckAsync();",
+                "await Expect(page.GetByRole(\"checkbox\", \"Agree\")).ToBeCheckedAsync();",
+                $"await Expect({paragraph}).ToBeVisibleAsync();",
+                $"await Expect({paragraph}).ToContainTextAsync(\"Hell\");",
+                "await Expect(page.GetByRole(\"list\")).ToMatchAriaSnapshotAsync(\"\"\"\n    - listitem: One\n    \"\"\");",
+                "await Expect(page).ToHaveTitleAsync(\"Recording\");",
+                $"await Expect(page).ToHaveUrlAsync(\"{url}\");",
+                "await page.GetByRole(\"checkbox\", \"Agree\").UncheckAsync();",
+                "await Expect(page.GetByRole(\"checkbox\", \"Agree\")).Not.ToBeCheckedAsync();",
             ],
             statements);
     }
