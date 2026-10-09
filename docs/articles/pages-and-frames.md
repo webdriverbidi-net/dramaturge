@@ -8,6 +8,8 @@ A `Page` is a tab or a window. Its main document is its `MainFrame`, and each if
 
 A navigation waits until the new document is loaded, or until the `ReadinessState` given: `Interactive` for the DOM, or `None` to return once the navigation is committed. A link click navigates without waiting for the new page, so wrap it in `RunAndWaitForNavigationAsync` when the next step needs that page, or follow it with `WaitForUrlAsync` or `WaitForLoadStateAsync`. `WaitForUrlAsync` takes a string for an exact URL, a `Regex`, or a condition.
 
+A navigation started with `NavigateAsync`, `ReloadAsync`, `GoBackAsync`, or `GoForwardAsync` first waits for the page's element lookups still in flight, and a lookup started while one of those navigations is in progress waits for it, since Chrome can stop answering a page whose lookup is pending as it navigates. Both waits come out of the navigation's or the action's own timeout, and a navigation waits no longer once the page has committed a new document.
+
 `SetContentAsync` replaces the document's content with HTML of your own, and `BringToFrontAsync` and `CloseAsync` focus and close the page.
 
 ## Scripts

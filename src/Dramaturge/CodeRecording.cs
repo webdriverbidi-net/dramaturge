@@ -90,13 +90,7 @@ public sealed class CodeRecording : IAsyncDisposable
     /// <remarks>Each report is recorded within the recording's own time limits, as when it stops.</remarks>
     public async Task<string> GetCodeAsync(CodeTarget target)
     {
-        Task processed;
-        lock (this.lockObject)
-        {
-            processed = this.processing;
-        }
-
-        await processed.ConfigureAwait(false);
+        await this.ProcessReceivedAsync().ConfigureAwait(false);
         return this.Write(target);
     }
 
@@ -281,8 +275,9 @@ public sealed class CodeRecording : IAsyncDisposable
     private static string Capitalize(string name) => char.ToUpperInvariant(name[0]) + name.Substring(1);
 
     // A step for an action, or null for an action the recording does not know. A password field's value is written as
-    // the masked password when passwords are masked.
-    private static RecordedStep? CreateStep(JsonElement action, string locator, bool maskPasswords)
+    // the masked password when passwords are masked. Text the locator already finds the element by is not asserted
+    // again: the element being visible is the assertion.
+    private static RecordedStep? CreateStep(JsonElement action, string locator, string? matchedText, bool maskPasswords)
     {
         bool masked = maskPasswords && IsPasswordField(action.GetProperty("target"));
         string Value(string property) => masked ? CodeWriter.MaskedPassword : CodeWriter.Literal(action.GetProperty(property).GetString()!);
@@ -328,7 +323,8 @@ public sealed class CodeRecording : IAsyncDisposable
             case "assertVisible":
                 return Assertion("ToBeVisibleAsync()");
             case "assertText":
-                return Assertion($"ToContainTextAsync({CodeWriter.Literal(action.GetProperty("text").GetString()!)})");
+                string text = action.GetProperty("text").GetString()!;
+                return Assertion(matchedText?.Contains(text) == true ? "ToBeVisibleAsync()" : $"ToContainTextAsync({CodeWriter.Literal(text)})");
             case "assertValue":
                 return Assertion($"ToHaveValueAsync({Value("value")})");
             case "assertChecked":
@@ -337,6 +333,15 @@ public sealed class CodeRecording : IAsyncDisposable
                 return Assertion($"ToMatchAriaSnapshotAsync({CodeWriter.RawLiteral(action.GetProperty("snapshot").GetString()!)})");
             default:
                 return null;
+        }
+    }
+
+    // Completes once what the browser has reported so far is recorded.
+    private Task ProcessReceivedAsync()
+    {
+        lock (this.lockObject)
+        {
+            return this.processing;
         }
     }
 
@@ -468,7 +473,7 @@ public sealed class CodeRecording : IAsyncDisposable
                     picked = new LocatorPickedEventArgs(frame.Page, found.Locator, locator);
                     break;
                 default:
-                    if (CreateStep(message, locator, this.maskPasswords) is RecordedStep created)
+                    if (CreateStep(message, locator, found.MatchedText, this.maskPasswords) is RecordedStep created)
                     {
                         RecordedStep step = created with { Page = frame.Page, PageVariable = pageVariable, Number = ++this.stepCount };
                         if (step.SettlesAtOnce || this.pending is null || !step.Replaces(this.pending))
@@ -500,9 +505,12 @@ public sealed class CodeRecording : IAsyncDisposable
     // The navigation's window opens before its command is sent and closes once it completes, in the order of the
     // events, so each navigation that starts in it is the library's; the call is recorded as the window closes, as a
     // navigation within the document starts none.
+    // What the browser reported before the navigation, such as the action that preceded it, is recorded first, so that
+    // looking up its elements does not overlap the navigation.
     private async Task<T> RecordNavigationAsync<T>(Page page, string call, Func<Task<T>> navigate)
     {
         this.Enqueue(() => this.ChangeAsync(_ => this.libraryNavigations[page] = call));
+        await this.ProcessReceivedAsync().ConfigureAwait(false);
         bool succeeded = false;
         try
         {

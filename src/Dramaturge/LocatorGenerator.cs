@@ -45,7 +45,7 @@ internal static class LocatorGenerator
             List<string?> matches = await ResolveAsync(locator, budget).ConfigureAwait(false);
             if (matches.Count == 1 && matches[0] == targetId)
             {
-                return new GeneratedLocator(candidate.Code, locator);
+                return new GeneratedLocator(candidate.Code, locator) { MatchedText = candidate.MatchedText };
             }
 
             if (containing is null && matches.Contains(targetId))
@@ -79,12 +79,12 @@ internal static class LocatorGenerator
                 List<string?> matches = await ResolveAsync(locator, budget).ConfigureAwait(false);
                 if (matches.Count == 1 && matches[0] == targetId)
                 {
-                    return new GeneratedLocator($"{scopeCode}.{candidate.Code}", locator);
+                    return new GeneratedLocator($"{scopeCode}.{candidate.Code}", locator) { MatchedText = candidate.MatchedText };
                 }
             }
         }
 
-        return new GeneratedLocator($"{containing.Code}.Nth({index})", containing.OnFrame(frame).Nth(index));
+        return new GeneratedLocator($"{containing.Code}.Nth({index})", containing.OnFrame(frame).Nth(index)) { MatchedText = containing.MatchedText };
     }
 
     private static IEnumerable<Candidate> TargetCandidates(JsonElement facts)
@@ -97,9 +97,11 @@ internal static class LocatorGenerator
         string? role = Text(facts, "role");
         bool namedRole = role is not null && !UnnamedRoles.Contains(role);
         string name = Text(facts, "name") ?? string.Empty;
+        string shown = Text(facts, "text") ?? string.Empty;
         if (namedRole && name.Length > 0)
         {
-            yield return Role(role!, name);
+            // A name that is the element's text is text the locator finds it by.
+            yield return Role(role!, name) with { MatchedText = name == shown ? name : null };
         }
 
         foreach (string label in facts.GetProperty("labels").EnumerateArray().Select(label => label.GetString()!).Where(label => label.Length > 0))
@@ -117,14 +119,13 @@ internal static class LocatorGenerator
             }
         }
 
-        string shown = Text(facts, "text") ?? string.Empty;
         if (shown.Length > 0)
         {
             string shortened = Shorten(shown);
-            yield return Partial("GetByText", shortened, (frame, text) => frame.GetByText(text), (scope, text) => scope.GetByText(text));
+            yield return Partial("GetByText", shortened, (frame, text) => frame.GetByText(text), (scope, text) => scope.GetByText(text)) with { MatchedText = shortened };
             if (shortened == shown)
             {
-                yield return Exact("GetByText", shown, (frame, text) => frame.GetByText(text, true), (scope, text) => scope.GetByText(text, true));
+                yield return Exact("GetByText", shown, (frame, text) => frame.GetByText(text, true), (scope, text) => scope.GetByText(text, true)) with { MatchedText = shown };
             }
         }
 
@@ -226,8 +227,12 @@ internal static class LocatorGenerator
 
     private static Candidate Exact(string method, string text, Func<Frame, string, ElementLocator> onFrame, Func<ElementLocator, string, ElementLocator> within) => new($"{method}({CodeWriter.Literal(text)}, exact: true)", frame => onFrame(frame, text), scope => within(scope, text));
 
-    // A way to find the element: its C#, and its locator in a frame or, for the element's own candidates, within another locator.
-    private sealed record Candidate(string Code, Func<Frame, ElementLocator> OnFrame, Func<ElementLocator, ElementLocator>? Within);
+    // A way to find the element: its C#, its locator in a frame or, for the element's own candidates, within another
+    // locator, and the element's text it finds the element by, if any.
+    private sealed record Candidate(string Code, Func<Frame, ElementLocator> OnFrame, Func<ElementLocator, ElementLocator>? Within)
+    {
+        public string? MatchedText { get; init; }
+    }
 
     private sealed record AttributeQueryMethod(string Attribute, string Method);
 }

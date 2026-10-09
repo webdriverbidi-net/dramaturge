@@ -8,6 +8,7 @@ namespace Dramaturge;
 using System.Text.Json.Nodes;
 using Dramaturge.TestUtilities;
 using WebDriverBiDi;
+using WebDriverBiDi.BrowsingContext;
 using static Dramaturge.TestUtilities.RecorderMessages;
 
 // The element acted on is node-1; the fake finds it alone with one kind of locator, and among others with the rest.
@@ -185,6 +186,80 @@ public class CodeRecordingLocatorTests
         Assert.DoesNotContain("using WebDriverBiDi.BrowsingContext;", code);
     }
 
+    // Text the locator already finds the element by is not asserted again.
+    [Theory]
+    [InlineData("text", "Save now", "Save now", "page.GetByText(\"Save now\")", "ToBeVisibleAsync()")]
+    [InlineData("text", "Save now", "now", "page.GetByText(\"Save now\")", "ToBeVisibleAsync()")]
+    [InlineData("text", "Save now", "Save now!", "page.GetByText(\"Save now\")", "ToContainTextAsync(\"Save now!\")")]
+    [InlineData("role+name", "Save now", "Save now", "page.GetByRole(\"button\", \"Save now\")", "ToBeVisibleAsync()")]
+    [InlineData("role+name", "Save", "Save", "page.GetByRole(\"button\", \"Save\")", "ToContainTextAsync(\"Save\")")]
+    [InlineData("testId", "Save", "Save now", "page.GetByTestId(\"save\")", "ToContainTextAsync(\"Save now\")")]
+    public async Task TextAssertionOnTextTheLocatorMatchesChecksVisibility(string kind, string name, string text, string locator, string call)
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        Answer(session, request => request.Kind == kind && !request.Exact == (kind == "text") ? [Target] : [Target, "node-9"]);
+        JsonObject facts = Facts();
+        facts["name"] = name;
+        if (kind != "testId")
+        {
+            facts.Remove("testId");
+        }
+
+        string statement = await RecordAssertTextAsync(driver, session, page, facts, text);
+
+        Assert.Equal($"await Expect({locator}).{call};", statement);
+    }
+
+    [Theory]
+    [InlineData(false, "page.GetByText(\"Save now\").Nth(1)")]
+    [InlineData(true, "page.GetByTestId(\"panel\").GetByText(\"Save now\")")]
+    public async Task TextAssertionKeepsTheMatchedTextOfAnIndexedOrScopedLocator(bool scoped, string locator)
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        JsonObject facts = Facts();
+        facts.Remove("testId");
+        facts["name"] = "Other";
+        JsonObject panel = new() { ["testId"] = "panel", ["role"] = "generic", ["cssPath"] = "#main > div", ["labels"] = new JsonArray() };
+        Answer(session, request => request.Scoped
+            ? (request.Kind == "text" && !request.Exact ? [Target] : [])
+            : request.Value.Contains("panel") ? ["node-3"] : request.Kind == "text" && !request.Exact ? ["node-9", Target] : []);
+
+        string statement = scoped
+            ? await RecordAssertTextAsync(driver, session, page, facts, "Save now", [panel], [Target, "node-3"])
+            : await RecordAssertTextAsync(driver, session, page, facts, "Save now");
+
+        Assert.Equal($"await Expect({locator}).ToBeVisibleAsync();", statement);
+    }
+
+    // An action reported before a navigation the library starts is recorded first, so that the lookups for its
+    // locator are not sent while the page navigates, even before any of them has been sent.
+    [Fact]
+    public async Task NavigationWaitsForTheActionsReportedBeforeIt()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        Answer(session, request => request.Kind == "label" && !request.Exact ? [Target] : [Target, "node-9"]);
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+        JsonObject facts = new() { ["labels"] = new JsonArray("Email"), ["cssPath"] = "#email", ["id"] = null };
+        JsonObject click = Action("click", facts, new JsonField("button", "left"), new JsonField("clickCount", 1), new JsonField("modifiers", new JsonArray()));
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.RemoteEnd.HoldAnswers("script.callFunction", release.Task);
+
+        await SendAsync(driver, session, channel, page.Id, click, [Target]);
+        Task<string> reload = page.ReloadAsync(ReadinessState.None, cancellationToken: TestContext.Current.CancellationToken);
+        await driver.BrowsingContext.GetTreeAsync(new GetTreeCommandParameters(), cancellationToken: TestContext.Current.CancellationToken);
+        int reloadsWhileRecording = session.RemoteEnd.CommandsFor("browsingContext.reload").Count;
+        release.SetResult();
+        await reload;
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, reloadsWhileRecording);
+        Assert.Contains("await page.GetByLabel(\"Email\").ClickAsync();\nawait page.ReloadAsync();", code);
+    }
+
     private static JsonObject Facts()
     {
         return new JsonObject()
@@ -250,6 +325,17 @@ public class CodeRecordingLocatorTests
         await SendAsync(driver, session, channel, page.Id, click, elementIds ?? [Target]);
         string code = await recording.StopAsync(TestContext.Current.CancellationToken);
         return code.Split('\n').Single(line => line.Contains("ClickAsync"));
+    }
+
+    private static async Task<string> RecordAssertTextAsync(BiDiDriver driver, FakeSession session, Page page, JsonObject facts, string text, JsonObject[]? ancestors = null, string[]? elementIds = null)
+    {
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+        JsonObject assertion = Action("assertText", facts, new JsonField("text", text));
+        assertion["ancestors"] = new JsonArray([.. (ancestors ?? []).Select(ancestor => (JsonNode)ancestor)]);
+        await SendAsync(driver, session, channel, page.Id, assertion, elementIds ?? [Target]);
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+        return code.Split('\n').Single(line => line.Contains("Expect("));
     }
 
     private static async Task<OpenedPage> OpenPageAsync()

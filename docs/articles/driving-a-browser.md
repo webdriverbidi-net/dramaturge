@@ -103,7 +103,7 @@ dramaturge code --target xunit -o LoginTests.cs
 dramaturge session stop
 ```
 
-<!-- inline-csharp: an example of exported code, its using directives left out -->
+<!-- inline-csharp: an example of exported code, from its class on -->
 ```csharp
 public class RecordedTests : PageTest
 {
@@ -116,7 +116,7 @@ public class RecordedTests : PageTest
         await page.GetByRole("textbox", "Password").FillAsync("secret");
         await page.RunAndWaitForNavigationAsync(() => page.GetByRole("button", "Sign in").ClickAsync());
         await Expect(page).ToHaveUrlAsync("https://example.com/home");
-        await Expect(page.GetByRole("heading", "Welcome, Ada")).ToContainTextAsync("Welcome, Ada");
+        await Expect(page.GetByRole("heading", "Welcome, Ada")).ToBeVisibleAsync();
     }
 }
 ```

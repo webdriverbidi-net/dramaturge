@@ -35,7 +35,7 @@ Its buttons:
 | **Record** | Turns recording off and on |
 | **Pick locator** | Highlights the element under the pointer; clicking it prints its locator without recording anything |
 | **Assert visible** | Clicking an element adds `ToBeVisibleAsync` |
-| **Assert text** | Clicking an element asks for the text to expect, starting from the element's; Enter adds `ToContainTextAsync`, and Escape cancels |
+| **Assert text** | Clicking an element asks for the text to expect, starting from the element's; Enter adds `ToContainTextAsync`, or `ToBeVisibleAsync` when the element's locator already finds it by text that contains it, and Escape cancels |
 | **Assert value** | Clicking a field adds `ToHaveValueAsync`, or, for a checkbox or radio button, `ToBeCheckedAsync` or `Not.ToBeCheckedAsync` |
 | **Assert snapshot** | Clicking an element adds `ToMatchAriaSnapshotAsync` with its [accessibility snapshot](accessibility-snapshots.md) |
 
@@ -97,7 +97,7 @@ When none finds the element alone, a locator is looked for within the element's 
 
 ## Targets
 
-`--target program` writes top-level statements that launch the browser the recording used, with a window, and open a page. The test targets write a class, `RecordedTests`, derived from the framework package's `PageTest`, with one test, `Recorded`, that uses `this.Page`; the browser it runs in is chosen as [Test Frameworks](test-frameworks.md) describes, and the project needs that article's one-time setup. A test ID attribute other than the default is set by overriding `GroupOptions`.
+`--target program` writes top-level statements that launch the browser the recording used, with a window, and open a page. The test targets write a class, `RecordedTests`, derived from the framework package's `PageTest`, with one test, `Recorded`, that uses `this.Page`; the browser it runs in is chosen as [Test Frameworks](test-frameworks.md) describes, and the project needs that article's one-time setup, which a comment above the class points to, and for xUnit gives. The xUnit target also turns off the xUnit1051 analyzer warning for the file, since the recorded steps do not pass `TestContext.Current.CancellationToken`. A test ID attribute other than the default is set by overriding `GroupOptions`.
 
 ## Recording from Code
 
@@ -105,7 +105,7 @@ When none finds the element alone, a locator is looked for within the element's 
 
 [!code-csharp[Record Code](../code/CodegenSamples.cs#RecordCode)]
 
-Dramaturge's own calls on a recording browser's pages are recorded too: `NavigateAsync`, `ReloadAsync`, `GoBackAsync`, and `GoForwardAsync` as themselves, never as the effect of an earlier action; `SelectOptionAsync`, whose events the page does not take for a user's; and `SetInputFilesAsync` with the paths it was given rather than the files' names. Its other actions are recorded from the events they cause, as a user's are. Expectations that pass are recorded as well, where the toolbar could add them: `ToBeVisibleAsync`, `ToContainTextAsync` and `ToHaveValueAsync` with a string, `ToBeCheckedAsync` and `Not.ToBeCheckedAsync`, and `ToMatchAriaSnapshotAsync`, each with a locator chosen for the element it checked, and a page's `ToHaveUrlAsync` and `ToHaveTitleAsync` with a string. Other expectations are not recorded, nor are ones that ignore case, read the rendered text, or are otherwise negated.
+Dramaturge's own calls on a recording browser's pages are recorded too: `NavigateAsync`, `ReloadAsync`, `GoBackAsync`, and `GoForwardAsync` as themselves, never as the effect of an earlier action; `SelectOptionAsync`, whose events the page does not take for a user's; and `SetInputFilesAsync` with the paths it was given rather than the files' names. Its other actions are recorded from the events they cause, as a user's are. Expectations that pass are recorded as well, where the toolbar could add them: `ToBeVisibleAsync`, `ToContainTextAsync` and `ToHaveValueAsync` with a string, `ToBeCheckedAsync` and `Not.ToBeCheckedAsync`, and `ToMatchAriaSnapshotAsync`, each with a locator chosen for the element it checked (a text expectation whose locator already finds the element by text containing it is written as `ToBeVisibleAsync`), and a page's `ToHaveUrlAsync` and `ToHaveTitleAsync` with a string. Other expectations are not recorded, nor are ones that ignore case, read the rendered text, or are otherwise negated.
 
 A browser records code once at a time; starting another recording while one is running throws `InvalidOperationException`. Recording starts in the pages already open before `RecordCodeAsync` returns, and in each page or frame loaded later as its document loads.
 
