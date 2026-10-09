@@ -14,4 +14,11 @@ public sealed class CodeRecordingOptions
     /// Gets the kind of file the recording writes. The default is <see cref="CodeTarget.Program"/>.
     /// </summary>
     public CodeTarget Target { get; init; } = CodeTarget.Program;
+
+    /// <summary>
+    /// Gets a value indicating whether the recording shows its toolbar at the top of each page. Without it, the
+    /// user's actions and Dramaturge's own calls are still recorded, but no locator can be picked and no assertion
+    /// added from the page. The default is <see langword="true"/>.
+    /// </summary>
+    public bool ShowToolbar { get; init; } = true;
 }

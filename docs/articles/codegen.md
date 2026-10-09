@@ -25,7 +25,9 @@ A statement is printed once it is complete, which is when you do the next thing:
 
 ## The Toolbar
 
-The toolbar sits at the top of each page while it is recorded:
+The toolbar sits at the top of each page while it is recorded. Drag it by the grip at its left end to move it, and click the button at its right end to collapse it to a small **Recording** pill, which you can also drag; clicking the pill opens the toolbar again. Pages loaded later in the recording show it where you last left it, open or collapsed.
+
+Its buttons:
 
 | Button | Does |
 | --- | --- |
@@ -36,7 +38,7 @@ The toolbar sits at the top of each page while it is recorded:
 | **Assert value** | Clicking a field adds `ToHaveValueAsync`, or, for a checkbox or radio button, `ToBeCheckedAsync` or `Not.ToBeCheckedAsync` |
 | **Assert snapshot** | Clicking an element adds `ToMatchAriaSnapshotAsync` with its [accessibility snapshot](accessibility-snapshots.md) |
 
-A click made to pick or assert is not passed to the page, so a link is not followed and a checkbox is not toggled. Recording resumes after each pick or assertion.
+A click made to pick or assert is not passed to the page, so a link is not followed and a checkbox is not toggled. Recording resumes after each pick or assertion. An element under the toolbar cannot be clicked there; move or collapse the toolbar first.
 
 ## What Is Recorded
 
@@ -96,7 +98,7 @@ When none finds the element alone, a locator is looked for within the element's 
 
 ## Recording from Code
 
-`RecordCodeAsync` records a browser's actions as code, as the tool does; the browser should have a window, since the toolbar and the recording need a user. `OnStatement` reports each statement as it is complete, `OnLocatorPicked` each locator picked with the toolbar, and `Code` gives the whole file at any time. `StopAsync` completes the last statement, removes the toolbar, and returns the code.
+`RecordCodeAsync` records a browser's actions as code, as the tool does. With the toolbar, the browser should have a window, since the toolbar needs a user; `CodeRecordingOptions.ShowToolbar = false` records without it, as a program driving the browser through Dramaturge would, though then no locator can be picked and no assertion added from the page. `OnStatement` reports each statement as it is complete, `OnLocatorPicked` each locator picked with the toolbar, and `Code` gives the whole file at any time. `StopAsync` completes the last statement, removes the toolbar, and returns the code.
 
 [!code-csharp[Record Code](../code/CodegenSamples.cs#RecordCode)]
 
@@ -112,4 +114,3 @@ A browser records code once at a time; starting another recording while one is r
 - **Firefox text:** Firefox cannot look elements up by their rendered text, so `GetByText` is never chosen there.
 - **Shadow roots:** an element in a shadow root gets a role or attribute locator where one finds it; its CSS path starts inside the shadow root, so it works only with `DramaturgeOptions.PierceShadowRoots`. An action in a frame whose element is in a shadow root is not recorded.
 - **Typed values:** what you type is written into the code as it is, passwords included.
-- **The toolbar** covers the top center of each page; an element under it cannot be clicked there.
