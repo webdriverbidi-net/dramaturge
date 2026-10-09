@@ -13,7 +13,7 @@ dotnet tool install --global Dramaturge.Tool
 Or, with .NET 10 or later, run it once without installing it:
 
 ```bash
-dnx Dramaturge.Tool install chrome
+dnx Dramaturge.Tool browsers install chrome
 ```
 
 The tool runs on .NET 8 and later.
@@ -21,7 +21,7 @@ The tool runs on .NET 8 and later.
 ## Installing Browsers and Drivers
 
 ```bash
-dramaturge install chrome chromedriver firefox@beta geckodriver
+dramaturge browsers install chrome chromedriver firefox@beta geckodriver
 ```
 
 Each target is a name, optionally followed by `@` and a channel, a milestone, or a version:
@@ -41,18 +41,18 @@ The tool prints where each target is installed, and reports download progress on
 `--dry-run` shows the version and URL each target resolves to, and whether it is already cached, without downloading anything:
 
 ```bash
-dramaturge install --dry-run chrome@beta geckodriver
+dramaturge browsers install --dry-run chrome@beta geckodriver
 ```
 
 ## Listing and Removing
 
 ```bash
-dramaturge list
-dramaturge clear chrome@canary chromedriver@131
-dramaturge clear
+dramaturge browsers list
+dramaturge browsers uninstall chrome@canary chromedriver@131
+dramaturge browsers clear
 ```
 
-`list` shows each cached browser and driver, as `name@version`, with its channel, size, the date a channel or driver lookup last used it, and its directory. `clear` removes what its targets select (a channel, a milestone, a version, or everything of a name) or, with no targets, everything; `--dry-run` shows what it would remove. Drivers are shared by every channel, so a driver is selected by version, not channel.
+`list` shows each cached browser and driver, as `name@version`, with its channel, size, the date a channel or driver lookup last used it, and its directory. `uninstall` removes what its targets select (a channel, a milestone, a version, or everything of a name), and `clear` removes everything; both take `--dry-run` to show what they would remove. Drivers are shared by every channel, so a driver is selected by version, not channel.
 
 ## Recording Code
 
@@ -64,13 +64,13 @@ dramaturge codegen https://example.com/ -o Recorded.cs
 
 ## The Cache
 
-Every command takes `--path` to choose the cache directory. Otherwise, the tool uses the same directory as the library: `DRAMATURGE_BROWSERS_PATH` if it is set, or else the per-user cache directory. The library's other environment variables apply too, such as `DRAMATURGE_DOWNLOAD_MANIFEST` to download from a mirror. [Browser Setup](browser-setup.md#downloads-and-the-cache) describes them.
+`browsers` and `codegen` take `--path` to choose the cache directory. Otherwise, the tool uses the same directory as the library: `DRAMATURGE_BROWSERS_PATH` if it is set, or else the per-user cache directory. The library's other environment variables apply too, such as `DRAMATURGE_DOWNLOAD_MANIFEST` to download from a mirror. [Browser Setup](browser-setup.md#downloads-and-the-cache) describes them.
 
 A test run can then use what the tool installed:
 
 ```bash
 export DRAMATURGE_BROWSERS_PATH="$PWD/.browsers"
-dramaturge install chrome chromedriver
+dramaturge browsers install chrome chromedriver
 export DRAMATURGE_SKIP_DOWNLOAD=1
 dotnet test
 ```

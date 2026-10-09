@@ -206,7 +206,7 @@ To install browsers and drivers into the cache ahead of time, as in a CI machine
 
 ```bash
 dotnet tool install --global Dramaturge.Tool
-dramaturge install chrome chromedriver firefox geckodriver
+dramaturge browsers install chrome chromedriver firefox geckodriver
 ```
 
 ### Mirroring Downloads

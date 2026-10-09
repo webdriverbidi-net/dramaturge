@@ -12,8 +12,8 @@ using Dramaturge.Browsers;
 using WebDriverBiDi;
 
 /// <summary>
-/// The dramaturge tool: installs, lists, and removes the browsers and drivers that Dramaturge.Browsers caches, and
-/// records the actions a user takes in a browser as C#.
+/// The dramaturge tool: installs, lists, and removes, under its browsers command, the browsers and drivers that
+/// Dramaturge.Browsers caches, and records the actions a user takes in a browser as C#.
 /// </summary>
 public static class DramaturgeTool
 {
@@ -65,29 +65,42 @@ public static class DramaturgeTool
         Command list = new("list", "List the browsers and drivers in the cache.");
         list.SetAction(parseResult => List(createDownloadOptions(parseResult.GetValue(pathOption), progress), output, error));
 
-        Argument<string[]> clearTargets = new("targets")
+        Argument<string[]> uninstallTargets = new("targets")
         {
-            Arity = ArgumentArity.ZeroOrMore,
-            Description = "The installations to remove, as name[@channel|@milestone|@version], such as chrome@canary or chromedriver@131. With none, everything is removed.",
+            Arity = ArgumentArity.OneOrMore,
+            Description = "The installations to remove, as name[@channel|@milestone|@version], such as chrome@canary or chromedriver@131.",
         };
+        Option<bool> uninstallDryRun = new("--dry-run") { Description = "Show what would be removed, without removing it." };
+        Command uninstall = new("uninstall", "Remove browsers and drivers from the cache.") { uninstallTargets, uninstallDryRun };
+        uninstall.SetAction((parseResult, token) => ClearAsync(
+            parseResult.GetValue(uninstallTargets)!,
+            parseResult.GetValue(uninstallDryRun),
+            createDownloadOptions(parseResult.GetValue(pathOption), progress),
+            output,
+            error,
+            token));
+
         Option<bool> clearDryRun = new("--dry-run") { Description = "Show what would be removed, without removing it." };
-        Command clear = new("clear", "Remove browsers and drivers from the cache.") { clearTargets, clearDryRun };
+        Command clear = new("clear", "Remove every browser and driver from the cache.") { clearDryRun };
         clear.SetAction((parseResult, token) => ClearAsync(
-            parseResult.GetValue(clearTargets) ?? [],
+            [],
             parseResult.GetValue(clearDryRun),
             createDownloadOptions(parseResult.GetValue(pathOption), progress),
             output,
             error,
             token));
 
+        Command browsers = new("browsers", "Install, list, and remove the browsers and drivers that Dramaturge.Browsers caches.") { install, list, uninstall, clear };
+        browsers.Options.Add(pathOption);
+
         Argument<string?> codegenUrl = new("url") { Arity = ArgumentArity.ZeroOrOne, Description = "The address to open first." };
         Option<CodeTarget> codegenTarget = new("--target") { Description = "The kind of file to write.", DefaultValueFactory = _ => CodeTarget.Program };
         Option<BrowserKind> codegenBrowser = new("--browser") { Description = "The browser to record in.", DefaultValueFactory = _ => BrowserKind.Chrome };
-        Option<string?> codegenChannel = new("--channel") { Description = "The browser's release channel, as install names it: stable (the default), beta, dev, and canary for Chrome and Edge, or nightly and esr for Firefox." };
+        Option<string?> codegenChannel = new("--channel") { Description = "The browser's release channel, as browsers install names it: stable (the default), beta, dev, and canary for Chrome and Edge, or nightly and esr for Firefox." };
         Option<string?> codegenTestId = new("--test-id-attribute") { Description = "The attribute test IDs are read from. Defaults to data-testid." };
         Option<string?> codegenOutput = new("--output", "-o") { Description = "A file to keep the whole code in as it is recorded." };
         Option<bool> codegenMaskPasswords = new("--mask-passwords") { Description = "Write values typed into, or expected of, password fields as a read of the DRAMATURGE_PASSWORD environment variable." };
-        Command codegen = new("codegen", "Record the actions you take in a browser as C#, until you close the browser or press Ctrl+C.") { codegenUrl, codegenTarget, codegenBrowser, codegenChannel, codegenTestId, codegenOutput, codegenMaskPasswords };
+        Command codegen = new("codegen", "Record the actions you take in a browser as C#, until you close the browser or press Ctrl+C.") { codegenUrl, codegenTarget, codegenBrowser, codegenChannel, codegenTestId, codegenOutput, codegenMaskPasswords, pathOption };
         codegen.SetAction((parseResult, token) => Codegen.RunAsync(
             new CodegenSettings(
                 parseResult.GetValue(codegenUrl),
@@ -105,8 +118,7 @@ public static class DramaturgeTool
             token));
 
         // A RootCommand would name itself for the entry assembly, Dramaturge.Tool, rather than the command.
-        Command root = new(CommandName, "Installs, lists, and removes the browsers and drivers that Dramaturge.Browsers caches, and records browser actions as C#.") { install, list, clear, codegen };
-        root.Options.Add(pathOption);
+        Command root = new(CommandName, "Installs, lists, and removes the browsers and drivers that Dramaturge.Browsers caches, and records browser actions as C#.") { browsers, codegen };
         root.Options.Add(new HelpOption());
         root.Options.Add(new VersionOption());
         return root.Parse(args).InvokeAsync(new InvocationConfiguration() { Output = output, Error = error }, cancellationToken);

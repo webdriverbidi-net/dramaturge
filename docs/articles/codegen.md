@@ -15,7 +15,7 @@ dramaturge codegen https://example.com/login --target xunit -o LoginTests.cs
 | *url* | The address to open first, recorded as `NavigateAsync` |
 | `--target` | The kind of file: `program` (the default), `xunit`, `nunit`, `mstest`, or `tunit` |
 | `--browser` | `chrome` (the default), `firefox`, or `edge` |
-| `--channel` | The browser's release channel, named as `dramaturge install` names it: `stable` (the default), `beta`, `dev`, and `canary` for Chrome and Edge, or `nightly` and `esr` for Firefox |
+| `--channel` | The browser's release channel, named as `dramaturge browsers install` names it: `stable` (the default), `beta`, `dev`, and `canary` for Chrome and Edge, or `nightly` and `esr` for Firefox |
 | `--test-id-attribute` | The attribute test IDs are read from; the default is `data-testid` |
 | `-o`, `--output` | A file kept up to date with the whole code as it is recorded |
 | `--mask-passwords` | Writes a value typed into, or expected of, a password field as `Environment.GetEnvironmentVariable("DRAMATURGE_PASSWORD") ?? ""` instead of as typed |
