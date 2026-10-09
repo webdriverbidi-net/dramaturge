@@ -43,6 +43,7 @@ public sealed class BrowserGroup : IAsyncDisposable
     private HashSet<string>? contextsDestroyedWhileStarting = [];
     private string? subscriptionId;
     private string? networkSubscriptionId;
+    private string? frontContextId;
     private int isDisposed;
 
     private BrowserGroup(BiDiDriver driver, DramaturgeOptions options, BrowserLauncher? launcher, bool ownsSession)
@@ -64,6 +65,11 @@ public sealed class BrowserGroup : IAsyncDisposable
         this.observers.Add(driver.Network.OnBeforeRequestSent.AddObserver(this.OnBeforeRequestSentAsync, ObservableEventHandlerOptions.RunHandlerAsynchronously));
         this.observers.Add(driver.Network.OnResponseCompleted.AddObserver(e => this.FindFrame(e.BrowsingContextId ?? string.Empty)?.Page.NotifyResponse(e)));
         this.observers.Add(driver.BrowsingContext.OnContextDestroyed.AddObserver(this.OnContextDestroyedAsync));
+
+        // The page in front, as far as the group knows: a new tab or window comes to the front as it opens, and a
+        // closed one leaves the front unknown.
+        this.observers.Add(driver.BrowsingContext.OnContextCreated.AddObserver(e => this.RecordFront(e.Parent is null ? e.BrowsingContextId : null, null)));
+        this.observers.Add(driver.BrowsingContext.OnContextDestroyed.AddObserver(e => this.RecordFront(null, e.BrowsingContextId)));
         this.observers.Add(driver.OnConnectionLost.AddObserver(this.OnConnectionLostAsync));
         this.observers.Add(driver.BrowsingContext.OnNavigationStarted.AddObserver(e => this.FindFrame(e.BrowsingContextId)?.RecordNavigationStarted()));
         this.observers.Add(driver.BrowsingContext.OnNavigationCommitted.AddObserver(e => this.FindFrame(e.BrowsingContextId)?.RecordNewDocument(e.Url)));
@@ -289,6 +295,48 @@ public sealed class BrowserGroup : IAsyncDisposable
 
         await this.Driver.DisposeAsync().ConfigureAwait(false);
         await this.launcher.DisposeAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Brings a page to the front unless the group knows it is there already. A page behind another can be neither
+    /// drawn nor, in Chrome, given input, so an action or screenshot waits on it forever.
+    /// </summary>
+    /// <param name="page">The page.</param>
+    /// <param name="timeout">The time bringing it to the front may take, or <see langword="null"/> for the driver's default.</param>
+    /// <param name="cancellationToken">A token that cancels bringing it to the front.</param>
+    /// <returns>A task that completes when the page is in front.</returns>
+    internal async Task BringToFrontIfBehindAsync(Page page, TimeSpan? timeout, CancellationToken cancellationToken)
+    {
+        lock (this.lockObject)
+        {
+            if (this.frontContextId == page.Id)
+            {
+                return;
+            }
+        }
+
+        await this.Driver.BrowsingContext.ActivateAsync(new ActivateCommandParameters(page.Id), timeout, cancellationToken).ConfigureAwait(false);
+        this.RecordFront(page.Id, null);
+    }
+
+    /// <summary>
+    /// Records that a page came to the front, or that one closed, which leaves the front unknown if it was there.
+    /// </summary>
+    /// <param name="front">The ID of the browsing context that came to the front, or <see langword="null"/>.</param>
+    /// <param name="closed">The ID of a browsing context that closed, or <see langword="null"/>.</param>
+    internal void RecordFront(string? front, string? closed)
+    {
+        lock (this.lockObject)
+        {
+            if (front is not null)
+            {
+                this.frontContextId = front;
+            }
+            else if (closed is not null && closed == this.frontContextId)
+            {
+                this.frontContextId = null;
+            }
+        }
     }
 
     /// <summary>

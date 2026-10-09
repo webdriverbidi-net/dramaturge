@@ -820,6 +820,7 @@ public sealed class ElementLocator
     {
         return this.TraceAsync(this.Call("Screenshot", "screenshot"), this.CreateBudget(timeout, cancellationToken), async budget => (await this.PollElementAsync<byte[]>(budget, async node =>
         {
+            await this.Group.BringToFrontIfBehindAsync(this.Frame.Page, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
             string? notReady = await this.CheckStatesAsync(node, "['stable', 'visible']", budget).ConfigureAwait(false);
             if (notReady is not null)
             {
@@ -1575,7 +1576,7 @@ public sealed class ElementLocator
     }
 
     // Holds the modifier keys down around the pointer's actions.
-    private Task PerformPointerInputAsync(KeyModifiers modifiers, PointerType pointerType, TimeBudget budget, Action<PointerInputSource, InputBuilder> addActions)
+    private async Task PerformPointerInputAsync(KeyModifiers modifiers, PointerType pointerType, TimeBudget budget, Action<PointerInputSource, InputBuilder> addActions)
     {
         InputBuilder builder = new();
         string[] modifierKeys = ModifierKeyValues.For(modifiers);
@@ -1590,7 +1591,8 @@ public sealed class ElementLocator
             builder.AddAction(builder.DefaultKeyInputSource.CreateKeyUp(key));
         }
 
-        return this.Group.Driver.Input.PerformActionsAsync(this.Frame.Id, builder, budget.Remaining, budget.CancellationToken);
+        await this.Group.BringToFrontIfBehindAsync(this.Frame.Page, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
+        await this.Group.Driver.Input.PerformActionsAsync(this.Frame.Id, builder, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
     }
 
     private async Task<PollAttempt<ActionTarget?>> FindActionTargetAsync(string interactionType, PointerActionOptions options, TimeBudget budget)
@@ -1611,6 +1613,7 @@ public sealed class ElementLocator
         }
 
         LocalValue offset = LocalValue.Object(new Dictionary<string, LocalValue>() { ["x"] = LocalValue.Number(requested.X), ["y"] = LocalValue.Number(requested.Y) });
+        await this.Group.BringToFrontIfBehindAsync(this.Frame.Page, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
         RemoteValue readiness = await this.Group.ScriptHost.CallAsync(this.Frame.Id, "(inspector, element, type, offset) => inspector.isInteractionReady(element, type, offset)", [node.ToSharedReference(), LocalValue.String(interactionType), offset], budget).ConfigureAwait(false);
         switch (Property(readiness, "status").As<StringRemoteValue>().Value)
         {
@@ -1754,9 +1757,10 @@ public sealed class ElementLocator
         }
     }
 
-    private Task PerformKeyActionsAsync(InputBuilder builder, TimeBudget budget)
+    private async Task PerformKeyActionsAsync(InputBuilder builder, TimeBudget budget)
     {
-        return this.Group.Driver.Input.PerformActionsAsync(this.Frame.Id, builder, budget.Remaining, budget.CancellationToken);
+        await this.Group.BringToFrontIfBehindAsync(this.Frame.Page, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
+        await this.Group.Driver.Input.PerformActionsAsync(this.Frame.Id, builder, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
     }
 
     // Selecting the element's text, then typing, replaces the text as a user would, with the events a user's typing
@@ -1786,6 +1790,7 @@ public sealed class ElementLocator
 
         if (!force)
         {
+            await this.Group.BringToFrontIfBehindAsync(this.Frame.Page, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
             RemoteValue readiness = await this.Group.ScriptHost.CallAsync(this.Frame.Id, "(inspector, element, type) => inspector.isInteractionReady(element, type)", [node.ToSharedReference(), LocalValue.String(interactionType)], budget).ConfigureAwait(false);
             switch (Property(readiness, "status").As<StringRemoteValue>().Value)
             {
@@ -1815,6 +1820,7 @@ public sealed class ElementLocator
             return new(false, false, "no element matched");
         }
 
+        await this.Group.BringToFrontIfBehindAsync(this.Frame.Page, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
         RemoteValue states = await this.Group.ScriptHost.CallAsync(this.Frame.Id, "(inspector, element) => inspector.queryElementStates(element, ['stable', 'visible', 'inview'])", [nodes[0].ToSharedReference()], budget).ConfigureAwait(false);
         switch (Property(states, "status").As<StringRemoteValue>().Value)
         {

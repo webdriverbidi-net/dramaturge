@@ -77,9 +77,11 @@ public sealed class CodegenTests : IDisposable
         string path = Path.Combine(this.directory.Path, "RecordedTests.cs");
         using CancellationTokenSource cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
 
-        Task<ToolResult> running = RunAsync(server, cancellation.Token, "codegen", "--target", "xunit", "--test-id-attribute", "data-test", "--browser", "firefox", "--channel", "beta", "-o", path);
+        LineWriter recording = new("Recording.");
+        Task<ToolResult> running = RunAsync(server, false, recording, cancellation.Token, "codegen", "--target", "xunit", "--test-id-attribute", "data-test", "--browser", "firefox", "--channel", "beta", "-o", path);
         FakeSession session = await ConnectedSessionAsync(server);
         string channel = await ChannelAsync(session);
+        await recording.Written.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         string page = session.Contexts[0].Id;
         await SendClickAsync(session, channel, page, "#first");
         await SendClickAsync(session, channel, page, "#second");
@@ -107,14 +109,15 @@ public sealed class CodegenTests : IDisposable
         using CancellationTokenSource cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
 
         string path = Path.Combine(this.directory.Path, "Recorded.cs");
+        LineWriter recording = new("Recording.");
 
-        // Messages are handled in order, so the pick is reported once the click after it settles.
-        Task<ToolResult> running = RunAsync(server, cancellation.Token, "codegen", "-o", path);
+        // Messages are handled in order, and the pick is reported as it is handled, so before the click after it is.
+        Task<ToolResult> running = RunAsync(server, false, recording, cancellation.Token, "codegen", "-o", path);
         FakeSession session = await ConnectedSessionAsync(server);
         string channel = await ChannelAsync(session);
+        await recording.Written.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         await SendAsync(session, channel, session.Contexts[0].Id, Action("pick", "#go"));
         await SendClickAsync(session, channel, session.Contexts[0].Id, "#first");
-        await SendClickAsync(session, channel, session.Contexts[0].Id, "#second");
         await WaitUntilAsync(() => ReadWhenWritten(path)?.Contains("#first") == true);
         cancellation.Cancel();
         ToolResult result = await running;
@@ -134,9 +137,11 @@ public sealed class CodegenTests : IDisposable
         fill["target"]!["tagName"] = "input";
         fill["target"]!["type"] = "password";
 
-        Task<ToolResult> running = RunAsync(server, cancellation.Token, "codegen", "--mask-passwords", "-o", path);
+        LineWriter recording = new("Recording.");
+        Task<ToolResult> running = RunAsync(server, false, recording, cancellation.Token, "codegen", "--mask-passwords", "-o", path);
         FakeSession session = await ConnectedSessionAsync(server);
         string channel = await ChannelAsync(session);
+        await recording.Written.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         await SendAsync(session, channel, session.Contexts[0].Id, fill);
         await WaitUntilAsync(() => ReadWhenWritten(path)?.Contains("#password") == true);
         cancellation.Cancel();
@@ -161,9 +166,11 @@ public sealed class CodegenTests : IDisposable
         }
 
         string path = Path.Combine(this.directory.Path, "Recorded.cs");
-        Task<ToolResult> running = RunAsync(server, true, cancellation.Token, "codegen", "-o", path);
+        LineWriter recording = new("Recording.");
+        Task<ToolResult> running = RunAsync(server, true, recording, cancellation.Token, "codegen", "-o", path);
         FakeSession session = await ConnectedSessionAsync(server);
         string channel = await ChannelAsync(session);
+        await recording.Written.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         string page = session.Contexts[0].Id;
         await SendAsync(session, channel, page, Fill("A"));
         await SendAsync(session, channel, page, Fill("Ad"));

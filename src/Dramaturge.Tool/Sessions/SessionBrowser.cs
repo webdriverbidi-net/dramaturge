@@ -399,7 +399,6 @@ internal sealed class SessionBrowser : IDisposable
                 return target.Failure;
             }
 
-            await page.BringToFrontAsync(cancellationToken).ConfigureAwait(false);
             image = await target.Locator!.ScreenshotAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
@@ -446,8 +445,6 @@ internal sealed class SessionBrowser : IDisposable
 
         try
         {
-            // Chrome renders no frames in a tab behind another, and an action waits for frames.
-            await page.BringToFrontAsync(cancellationToken).ConfigureAwait(false);
             await action(target.Locator!, result, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is WebDriverBiDiException or InvalidOperationException or ArgumentException)
@@ -563,7 +560,6 @@ internal sealed class SessionBrowser : IDisposable
         Dictionary<string, object?> result = new() { ["condition"] = described };
         try
         {
-            await page.BringToFrontAsync(cancellationToken).ConfigureAwait(false);
             switch (condition.Kind)
             {
                 case "url":
