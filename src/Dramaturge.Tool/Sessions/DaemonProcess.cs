@@ -20,10 +20,10 @@ internal static class DaemonProcess
     /// daemon to close them.
     /// </summary>
     /// <param name="serveArguments">The arguments of <c>session serve</c>.</param>
-    /// <param name="error">The writer for the daemon's errors.</param>
+    /// <param name="error">The writer for the daemon's progress.</param>
     /// <param name="cancellationToken">A token that cancels the wait.</param>
-    /// <returns>A task whose result is 0 once the daemon is ready, or another exit code once it has failed.</returns>
-    public static async Task<int> StartAsync(IReadOnlyList<string> serveArguments, TextWriter error, CancellationToken cancellationToken)
+    /// <returns>A task whose result is <see langword="null"/> once the daemon is ready, or why it failed.</returns>
+    public static async Task<string?> StartAsync(IReadOnlyList<string> serveArguments, TextWriter error, CancellationToken cancellationToken)
     {
         string host = Environment.ProcessPath!;
         ProcessStartInfo start = new(host)
@@ -54,12 +54,17 @@ internal static class DaemonProcess
         {
             if (line == "ready")
             {
-                return 0;
+                return null;
+            }
+
+            if (line.StartsWith("failed ", StringComparison.Ordinal))
+            {
+                return line.Substring("failed ".Length);
             }
         }
 
         await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        return process.ExitCode == 0 ? 1 : process.ExitCode;
+        return $"The session's process ended, with exit code {process.ExitCode}, before it was ready.";
     }
 
     private static async Task RelayAsync(StreamReader reader, TextWriter error)

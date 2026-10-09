@@ -22,11 +22,15 @@ public sealed class CodegenTests : IDisposable
     {
         await using FakeBrowserServer server = await FakeBrowserServer.StartAsync();
 
-        Task<ToolResult> running = RunAsync(server, CancellationToken.None, "codegen", "https://example.com/");
+        LineWriter error = new("Recording.");
+        Task<ToolResult> running = RunAsync(server, false, error, CancellationToken.None, "codegen", "https://example.com/");
         FakeSession session = await ConnectedSessionAsync(server);
         string channel = await ChannelAsync(session);
         string page = (string)(await session.RemoteEnd.WaitForCommandAsync("browsingContext.navigate"))["params"]!["context"]!;
         await session.RaiseNavigationEventAsync("browsingContext.navigationStarted", page, "https://example.com/");
+
+        // The navigation is the recording's statement once it completes, which codegen says before it waits.
+        await error.Written.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         await SendClickAsync(session, channel, page, "#go");
         await session.RemoteEnd.RaiseEventAsync("browsingContext.contextDestroyed", Context(page));
         ToolResult result = await running;
@@ -236,12 +240,13 @@ public sealed class CodegenTests : IDisposable
         this.directory.Dispose();
     }
 
-    private static Task<ToolResult> RunAsync(FakeBrowserServer server, CancellationToken cancellationToken, params string[] args) => RunAsync(server, false, cancellationToken, args);
+    private static Task<ToolResult> RunAsync(FakeBrowserServer server, CancellationToken cancellationToken, params string[] args) => RunAsync(server, false, new StringWriter(), cancellationToken, args);
 
-    private static async Task<ToolResult> RunAsync(FakeBrowserServer server, bool outputIsTerminal, CancellationToken cancellationToken, params string[] args)
+    private static Task<ToolResult> RunAsync(FakeBrowserServer server, bool outputIsTerminal, CancellationToken cancellationToken, params string[] args) => RunAsync(server, outputIsTerminal, new StringWriter(), cancellationToken, args);
+
+    private static async Task<ToolResult> RunAsync(FakeBrowserServer server, bool outputIsTerminal, StringWriter error, CancellationToken cancellationToken, params string[] args)
     {
         StringWriter output = new();
-        StringWriter error = new();
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, TestContext.Current.CancellationToken);
         int exitCode = await DramaturgeTool.RunAsync(args, output, error, configureLauncher: _ => BrowserLauncher.Configure(BrowserKind.Chrome).ConnectToExisting(server.UrlFor(SessionName)), outputIsTerminal: outputIsTerminal, cancellationToken: linked.Token);
         return new ToolResult(exitCode, output.ToString(), error.ToString());
@@ -315,6 +320,23 @@ public sealed class CodegenTests : IDisposable
         catch (IOException)
         {
             return null;
+        }
+    }
+
+    // Completes once a line starting with a text is written.
+    private sealed class LineWriter(string start) : StringWriter
+    {
+        private readonly TaskCompletionSource written = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Written => this.written.Task;
+
+        public override void WriteLine(string? value)
+        {
+            base.WriteLine(value);
+            if (value?.StartsWith(start, StringComparison.Ordinal) == true)
+            {
+                this.written.TrySetResult();
+            }
         }
     }
 

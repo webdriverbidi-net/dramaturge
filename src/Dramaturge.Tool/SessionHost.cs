@@ -19,11 +19,11 @@ public sealed class SessionHost
     public string Directory { get; init; } = SessionPaths.DefaultDirectory();
 
     /// <summary>
-    /// Gets the starter of a session's daemon. Given the arguments of <c>session serve</c> and the writer for errors,
-    /// it starts the daemon and returns 0 once the daemon is ready, or another exit code once it has failed, having
-    /// written why. The default starts the tool again as a detached process.
+    /// Gets the starter of a session's daemon. Given the arguments of <c>session serve</c> and the writer for the
+    /// daemon's progress, such as a browser download's, it starts the daemon and returns <see langword="null"/> once
+    /// the daemon is ready, or why it failed. The default starts the tool again as a detached process.
     /// </summary>
-    public Func<IReadOnlyList<string>, TextWriter, CancellationToken, Task<int>> StartDaemon { get; init; } = DaemonProcess.StartAsync;
+    public Func<IReadOnlyList<string>, TextWriter, CancellationToken, Task<string?>> StartDaemon { get; init; } = DaemonProcess.StartAsync;
 
     /// <summary>
     /// Gets the clock of a daemon's idle timeout. The default is the system's.

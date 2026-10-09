@@ -259,8 +259,9 @@ public sealed class ToolTests : IDisposable
         Assert.DoesNotContain("--path", help.Output);
         Assert.Equal(0, browsersHelp.ExitCode);
         Assert.All(["install", "list", "uninstall", "clear", "--path"], expected => Assert.Contains(expected, browsersHelp.Output));
-        Assert.Equal(1, unknown.ExitCode);
-        Assert.Equal(1, oldInstall.ExitCode);
+        Assert.Equal(2, unknown.ExitCode);
+        Assert.Equal("error[usage]: Unrecognized command or argument 'upgrade'. — Run 'dramaturge --help' for usage.", unknown.Error.Trim());
+        Assert.Equal(2, oldInstall.ExitCode);
     }
 
     // Removing everything is its own command, so an uninstall whose targets were left off removes nothing.

@@ -83,8 +83,18 @@ dramaturge session stop
 | `--idle-timeout` | The minutes the session waits for a command before it stops; the default is 30 |
 | `--mask-passwords` | Masks passwords in the session's code |
 | `--path` | The browser cache, as for `browsers` |
+| `--json` | Writes the result, or the error, as one line of JSON (on `list` and `stop` too) |
 
 Each session listens on a socket that only the current user can reach, in a directory of the user's own: under `$XDG_RUNTIME_DIR` (or `/tmp`) on Linux, the user's temporary directory on macOS, and the user's local application data on Windows. A session stopped by a signal (SIGTERM, SIGINT, SIGHUP) closes its browser first; one killed outright (SIGKILL), or that crashes, cannot, and leaves its browser running, while the next command that looks for it removes its socket.
+
+Session commands write their result as text, and an error to standard error as `error[code]: message — hint`. With `--json`, each writes one line of JSON to standard output instead: `{"ok":true,"result":{…}}`, or `{"ok":false,"error":{"code":…,"message":…,"hint":…}}`. The exit code is the same either way, and the same for every command of the tool:
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | Success |
+| 1 | The command failed, as when a session of the name is running already, or its browser could not start |
+| 2 | The arguments cannot be used: an unknown command or option, or a value that is not valid |
+| 3 | The session named is not running |
 
 ## The Cache
 
