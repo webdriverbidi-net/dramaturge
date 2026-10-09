@@ -221,7 +221,7 @@ public class CodeRecordingTests
         Assert.Equal(6, calls.Count);
         Assert.Equal([page.Id, frame.Id], contexts[..2].Order());
         Assert.Equal([popup.Id, page.Id, frame.Id, popup.Id], contexts[2..]);
-        Assert.All(calls[..3], call => Assert.Contains("recorder.start(send, testIdAttribute, mode)", (string?)call["functionDeclaration"]));
+        Assert.All(calls[..3], call => Assert.Contains("recorder.start(send, testIdAttribute, mode, showToolbar, layout)", (string?)call["functionDeclaration"]));
         Assert.All(calls[3..], call => Assert.Contains("recorder.stop()", (string?)call["functionDeclaration"]));
         JsonObject channel = calls[0]["arguments"]![0]!.AsObject();
         Assert.Equal("channel", (string?)channel["type"]);
@@ -390,6 +390,32 @@ public class CodeRecordingTests
         JsonObject thirdInstall = calls.Single(call => (string?)call["target"]!["context"] == third.Id && ((string)call["functionDeclaration"]!).Contains("recorder.start"));
         Assert.Equal("pick", (string?)thirdInstall["arguments"]![2]!["value"]);
         Assert.Equal(["await page.Locate(new CssLocator(\"#name\")).FillAsync(\"Ada\");"], Statements(code));
+    }
+
+    // Each document is started with whether to show the toolbar and the layout the toolbar last reported.
+    [Fact]
+    public async Task ToolbarSettingAndLayoutReachLaterDocuments()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(new CodeRecordingOptions() { ShowToolbar = false }, TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+
+        await SendAsync(driver, session, channel, page.Id, new JsonObject() { ["kind"] = "toolbar", ["x"] = 10, ["y"] = 20, ["collapsed"] = true });
+        Page second = await page.Browser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await RaiseDomContentLoadedAsync(session, second.Id);
+        bool IsStart(JsonObject call, string contextId) => (string?)call["target"]!["context"] == contextId && ((string)call["functionDeclaration"]!).Contains("recorder.start");
+        await WaitUntilAsync(() => session.RemoteEnd.CommandsFor("script.callFunction").Any(call => IsStart(call["params"]!.AsObject(), second.Id)));
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        List<JsonObject> calls = [.. session.RemoteEnd.CommandsFor("script.callFunction").Select(call => call["params"]!.AsObject())];
+        JsonArray first = calls.First(call => IsStart(call, page.Id))["arguments"]!.AsArray();
+        JsonArray later = calls.First(call => IsStart(call, second.Id))["arguments"]!.AsArray();
+        Assert.False((bool)first[3]!["value"]!);
+        Assert.Equal("null", (string?)first[4]!["type"]);
+        Assert.False((bool)later[3]!["value"]!);
+        Assert.Equal("{\"kind\":\"toolbar\",\"x\":10,\"y\":20,\"collapsed\":true}", (string?)later[4]!["value"]);
+        Assert.Empty(Statements(code));
     }
 
     [Fact]

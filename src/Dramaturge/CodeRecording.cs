@@ -21,6 +21,7 @@ public sealed class CodeRecording : IAsyncDisposable
 {
     private readonly Browser browser;
     private readonly CodeTarget target;
+    private readonly bool showToolbar;
     private readonly string channelId = $"dramaturge-code-{Guid.NewGuid():N}";
     private readonly object lockObject = new();
     private readonly List<IDisposable> observers = [];
@@ -42,14 +43,16 @@ public sealed class CodeRecording : IAsyncDisposable
     private string? subscriptionId;
     private RememberedLocator? lastLocator;
     private string mode = "record";
+    private string? toolbarLayout;
     private int downloadCount;
     private int stepCount;
     private bool isStopped;
 
-    private CodeRecording(Browser browser, CodeTarget target)
+    private CodeRecording(Browser browser, CodeRecordingOptions options)
     {
         this.browser = browser;
-        this.target = target;
+        this.target = options.Target;
+        this.showToolbar = options.ShowToolbar;
     }
 
     /// <summary>
@@ -159,7 +162,7 @@ public sealed class CodeRecording : IAsyncDisposable
     /// <exception cref="InvalidOperationException">Thrown when the browser is already recording code.</exception>
     internal static async Task<CodeRecording> StartAsync(Browser browser, CodeRecordingOptions? options, CancellationToken cancellationToken)
     {
-        CodeRecording recording = new(browser, (options ?? new CodeRecordingOptions()).Target);
+        CodeRecording recording = new(browser, options ?? new CodeRecordingOptions());
         if (!browser.ClaimCodeRecording(recording))
         {
             throw new InvalidOperationException("The browser is already recording code.");
@@ -332,14 +335,16 @@ public sealed class CodeRecording : IAsyncDisposable
     {
         ChannelValue channel = new(new ChannelProperties(this.channelId) { SerializationOptions = new SerializationOptions() { MaxDomDepth = 0 }, Ownership = ResultOwnership.None });
         string current;
+        string? layout;
         lock (this.lockObject)
         {
             current = this.mode;
+            layout = this.toolbarLayout;
         }
 
         return this.RunStepAsync(
             $"Starting the code recording in browsing context {contextId}",
-            () => this.browser.Group.ScriptHost.CallRecorderAsync(contextId, "(recorder, send, testIdAttribute, mode) => recorder.start(send, testIdAttribute, mode)", [channel, LocalValue.String(this.browser.Group.Options.TestIdAttribute), LocalValue.String(current)], this.CreateBudget(CancellationToken.None)));
+            () => this.browser.Group.ScriptHost.CallRecorderAsync(contextId, "(recorder, send, testIdAttribute, mode, showToolbar, layout) => recorder.start(send, testIdAttribute, mode, showToolbar, layout)", [channel, LocalValue.String(this.browser.Group.Options.TestIdAttribute), LocalValue.String(current), LocalValue.Boolean(this.showToolbar), layout is null ? LocalValue.Null : LocalValue.String(layout)], this.CreateBudget(CancellationToken.None)));
     }
 
     // The sender's frame is found as the message arrives: its page may close before the message is handled.
@@ -348,8 +353,12 @@ public sealed class CodeRecording : IAsyncDisposable
         Frame? frame = e.Source.BrowsingContextId is string contextId ? this.browser.Group.FindFrame(contextId) : null;
         if (e.ChannelId == this.channelId && frame?.Page.Browser == this.browser)
         {
-            CancellationToken lookups = this.GetLookupToken(frame);
-            this.Enqueue(() => this.HandleAsync(frame, e.Data.As<CollectionRemoteValue>().Value!, lookups));
+            RemoteValueList data = e.Data.As<CollectionRemoteValue>().Value!;
+            if (!this.TakeToolbarLayout(data))
+            {
+                CancellationToken lookups = this.GetLookupToken(frame);
+                this.Enqueue(() => this.HandleAsync(frame, data, lookups));
+            }
         }
     }
 
@@ -507,6 +516,25 @@ public sealed class CodeRecording : IAsyncDisposable
         }
 
         cancelled.ForEach(source => source.Cancel());
+    }
+
+    // The toolbar's latest position and state are where it starts in each document that loads later, so its message
+    // is taken as it arrives, before any later document's load is handled.
+    private bool TakeToolbarLayout(RemoteValueList data)
+    {
+        string json = data[0].As<StringRemoteValue>().Value;
+        using JsonDocument document = JsonDocument.Parse(json);
+        if (document.RootElement.GetProperty("kind").GetString() != "toolbar")
+        {
+            return false;
+        }
+
+        lock (this.lockObject)
+        {
+            this.toolbarLayout = json;
+        }
+
+        return true;
     }
 
     // A document reports its navigation before the navigation commits, though not always before it starts.

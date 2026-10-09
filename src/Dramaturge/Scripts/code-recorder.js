@@ -4,8 +4,8 @@
 // </copyright>
 
 // Records the user's actions for code generation, and, in the top frame, shows the toolbar that picks locators and
-// adds assertions. Each message goes through a channel as its JSON, then the element it is about and that element's
-// nameable ancestors, or null.
+// adds assertions, which can be dragged by its grip and collapsed to a pill. Each message goes through a channel as its
+// JSON, then the element it is about and that element's nameable ancestors, or null.
 (() => {
   const buttons = [
     ['record', 'Record'],
@@ -15,13 +15,19 @@
     ['assertValue', 'Assert value'],
     ['assertSnapshot', 'Assert snapshot'],
   ];
+  // The bar's columns are the grip, the six buttons, and the collapse button.
   const style = `
-    :host { all: initial; position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 2147483647; width: 600px; }
-    .bar, form { display: grid; gap: 4px; padding: 4px; background: #f8f9fa; border: 1px solid #9aa0a6; border-radius: 6px; font: 12px system-ui, sans-serif; }
-    .bar { grid-template-columns: repeat(6, 1fr); }
+    :host { all: initial; position: fixed; z-index: 2147483647; }
+    .bar, form, .pill { gap: 4px; padding: 4px; background: #f8f9fa; border: 1px solid #9aa0a6; border-radius: 6px; font: 12px system-ui, sans-serif; }
+    .bar, form { display: grid; }
+    .bar { width: 650px; box-sizing: border-box; grid-template-columns: 16px repeat(6, 1fr) 24px; }
+    .grip { cursor: grab; display: flex; align-items: center; justify-content: center; color: #5f6368; user-select: none; touch-action: none; }
     form { grid-template-columns: 1fr auto auto; margin-top: 4px; }
     button { font: inherit; height: 24px; padding: 0 4px; border: 1px solid #9aa0a6; border-radius: 4px; background: #fff; cursor: pointer; }
     button[aria-pressed=true] { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+    .pill { display: block; height: auto; cursor: grab; touch-action: none; }
+    .pill::before { content: '\\25CF'; color: #d93025; margin-right: 4px; }
+    [hidden] { display: none; }
     input { font: inherit; }`;
 
   let session = null;
@@ -39,12 +45,14 @@
       : null;
   };
 
-  const createToolbar = (onChoose, onAnswer) => {
+  // Starts where the layout puts it, or at the top center; a drag or a collapse sends the new layout.
+  const createToolbar = (onChoose, onAnswer, layout, onLayout) => {
     const host = document.createElement('dramaturge-toolbar');
     host.setAttribute('aria-hidden', 'true');
     const root = host.attachShadow({ mode: 'closed' });
-    root.innerHTML = `<style>${style}</style><div class="bar"></div>`;
+    root.innerHTML = `<style>${style}</style><div class="bar"><span class="grip" title="Drag to move">\u2807</span></div><button type="button" class="pill" hidden>Recording</button>`;
     const bar = root.querySelector('.bar');
+    const pill = root.querySelector('.pill');
     for (const [mode, label] of buttons) {
       const button = document.createElement('button');
       button.type = 'button';
@@ -54,12 +62,85 @@
       bar.appendChild(button);
     }
 
+    const collapse = document.createElement('button');
+    collapse.type = 'button';
+    collapse.title = 'Collapse';
+    collapse.textContent = '\u2013';
+    bar.appendChild(collapse);
     document.documentElement.appendChild(host);
+
+    let x = layout?.x ?? null;
+    let y = layout?.y ?? 8;
+    let collapsed = layout?.collapsed ?? false;
     let form = null;
+    // Kept wholly within the viewport, as its size or the window's changes.
+    const place = () => {
+      const { width, height } = host.getBoundingClientRect();
+      x = Math.max(0, Math.min(x ?? (innerWidth - width) / 2, innerWidth - width));
+      y = Math.max(0, Math.min(y, innerHeight - height));
+      host.style.left = `${x}px`;
+      host.style.top = `${y}px`;
+    };
+    const show = (isCollapsed) => {
+      collapsed = isCollapsed;
+      bar.hidden = collapsed;
+      pill.hidden = !collapsed;
+      if (form) {
+        form.hidden = collapsed;
+      }
+
+      place();
+    };
+    const sendLayout = () => onLayout({ x, y, collapsed });
+    // A drag moves the toolbar by the pointer's movement; one that does not move is a click.
+    const dragFrom = (handle, onClick) => {
+      handle.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0) {
+          return;
+        }
+
+        event.preventDefault();
+        handle.setPointerCapture(event.pointerId);
+        const start = { pointerX: event.clientX, pointerY: event.clientY, x, y };
+        let moved = false;
+        const onMove = (move) => {
+          moved ||= Math.abs(move.clientX - start.pointerX) + Math.abs(move.clientY - start.pointerY) > 3;
+          if (moved) {
+            x = start.x + move.clientX - start.pointerX;
+            y = start.y + move.clientY - start.pointerY;
+            place();
+          }
+        };
+        const onUp = () => {
+          handle.removeEventListener('pointermove', onMove);
+          handle.removeEventListener('pointerup', onUp);
+          if (moved) {
+            sendLayout();
+          } else {
+            onClick?.();
+          }
+        };
+        handle.addEventListener('pointermove', onMove);
+        handle.addEventListener('pointerup', onUp);
+      });
+    };
+    dragFrom(bar.querySelector('.grip'));
+    dragFrom(pill, () => {
+      show(false);
+      sendLayout();
+    });
+    // The pill's own click event would follow its pointer events; the drag handles them.
+    pill.addEventListener('click', (event) => event.preventDefault());
+    collapse.addEventListener('click', () => {
+      show(true);
+      sendLayout();
+    });
+    addEventListener('resize', place);
+    show(collapsed);
     return {
       host,
       show(mode) {
-        for (const button of bar.children) {
+        for (const button of bar.querySelectorAll('[data-mode]')) {
           button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
         }
       },
@@ -82,16 +163,18 @@
         form.querySelector('button[type=button]').addEventListener('click', () => close(null));
         input.addEventListener('keydown', (event) => event.key === 'Escape' && close(null));
         root.appendChild(form);
+        place();
         input.focus();
         input.select();
       },
       remove() {
+        removeEventListener('resize', place);
         host.remove();
       },
     };
   };
 
-  const start = (send, testIdAttribute, mode) => {
+  const start = (send, testIdAttribute, mode, showToolbar, layout) => {
     const describer = new Acquiescence.ElementDescriber();
     const describe = (element, details) => {
       const { target, ancestors } = describer.describe(element, { testIdAttribute });
@@ -156,14 +239,18 @@
       send([JSON.stringify({ kind: 'mode', mode: next }), null]);
     };
 
-    if (window === window.top) {
-      toolbar = createToolbar(choose, (text) => {
-        if (text !== null) {
-          describe(asked, { kind: 'assertText', text });
-        }
+    if (window === window.top && showToolbar) {
+      toolbar = createToolbar(
+        choose,
+        (text) => {
+          if (text !== null) {
+            describe(asked, { kind: 'assertText', text });
+          }
 
-        choose('record');
-      });
+          choose('record');
+        },
+        layout === null ? null : JSON.parse(layout),
+        (changed) => send([JSON.stringify({ kind: 'toolbar', ...changed }), null]));
     }
 
     apply(mode);
@@ -186,9 +273,9 @@
   };
 
   return {
-    start(send, testIdAttribute, mode) {
+    start(send, testIdAttribute, mode, showToolbar, layout) {
       session?.stop();
-      session = start(send, testIdAttribute, mode);
+      session = start(send, testIdAttribute, mode, showToolbar, layout);
     },
 
     setMode(mode) {

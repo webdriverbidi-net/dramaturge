@@ -366,16 +366,80 @@ public class CodeRecordingIntegrationTests
             statements);
     }
 
-    // The toolbar's six buttons share its width equally, in this order.
+    [Theory]
+    [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
+    public async Task ToolbarMovesCollapsesAndKeepsItsLayoutInLaterDocuments(BrowserKind browserKind)
+    {
+        await using TestPageServer server = await TestPageServer.StartAsync();
+        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.NavigateAsync(server.UrlFor("recording.html"), cancellationToken: TestContext.Current.CancellationToken);
+        CodeRecording recording = await group.DefaultBrowser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.WaitForFunctionAsync("() => document.querySelector('dramaturge-toolbar') !== null", cancellationToken: TestContext.Current.CancellationToken);
+        ToolbarBox before = await GetToolbarBoxAsync(page);
+
+        await page.Mouse.MoveAsync(before.Left + 13, before.Top + (before.Height / 2), cancellationToken: TestContext.Current.CancellationToken);
+        await page.Mouse.DownAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.Mouse.MoveAsync(before.Left + 13 - 40, before.Top + (before.Height / 2) + 200, steps: 5, cancellationToken: TestContext.Current.CancellationToken);
+        await page.Mouse.UpAsync(cancellationToken: TestContext.Current.CancellationToken);
+        ToolbarBox moved = await GetToolbarBoxAsync(page);
+        await page.Mouse.ClickAsync(moved.Left + moved.Width - 17, moved.Top + (moved.Height / 2), cancellationToken: TestContext.Current.CancellationToken);
+        ToolbarBox collapsed = await GetToolbarBoxAsync(page);
+
+        // The toolbar's layout reaches the recording as a message, which the next document is started with.
+        await page.Locate(new CssLocator("#go")).ClickAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.ReloadAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.WaitForFunctionAsync("() => document.querySelector('dramaturge-toolbar') !== null", cancellationToken: TestContext.Current.CancellationToken);
+        ToolbarBox reloaded = await GetToolbarBoxAsync(page);
+        await page.Mouse.ClickAsync(reloaded.Left + (reloaded.Width / 2), reloaded.Top + (reloaded.Height / 2), cancellationToken: TestContext.Current.CancellationToken);
+        ToolbarBox expanded = await GetToolbarBoxAsync(page);
+        await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(new ToolbarBox(before.Left - 40, before.Top + 200, before.Width, before.Height), moved);
+        Assert.Equal(moved.Left, collapsed.Left);
+        Assert.Equal(moved.Top, collapsed.Top);
+        Assert.True(collapsed.Width < 200, $"The collapsed toolbar was {collapsed.Width}px wide.");
+        Assert.Equal(collapsed, reloaded);
+        Assert.Equal(moved, expanded);
+    }
+
+    [Theory]
+    [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
+    public async Task RecordingWithoutTheToolbarStillRecords(BrowserKind browserKind)
+    {
+        await using TestPageServer server = await TestPageServer.StartAsync();
+        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.NavigateAsync(server.UrlFor("recording.html"), cancellationToken: TestContext.Current.CancellationToken);
+        CodeRecording recording = await group.DefaultBrowser.RecordCodeAsync(new CodeRecordingOptions() { ShowToolbar = false }, TestContext.Current.CancellationToken);
+
+        await page.Locate(new CssLocator("#go")).ClickAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.ReloadAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.Locate(new CssLocator("#done")).ClickAsync(cancellationToken: TestContext.Current.CancellationToken);
+        bool hasToolbar = await page.EvaluateAsync<bool>("() => document.querySelector('dramaturge-toolbar') !== null", cancellationToken: TestContext.Current.CancellationToken);
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.False(hasToolbar);
+        Assert.Contains("await page.GetByRole(\"button\", \"Go\").ClickAsync();\nawait page.ReloadAsync();\nawait page.GetByRole(\"button\", \"Done\").ClickAsync();\n", code);
+    }
+
+    private static async Task<ToolbarBox> GetToolbarBoxAsync(Page page)
+    {
+        string json = await page.EvaluateAsync<string>("() => JSON.stringify(document.querySelector('dramaturge-toolbar').getBoundingClientRect())", cancellationToken: TestContext.Current.CancellationToken);
+        using JsonDocument rect = JsonDocument.Parse(json);
+        return new ToolbarBox(rect.RootElement.GetProperty("left").GetDouble(), rect.RootElement.GetProperty("top").GetDouble(), rect.RootElement.GetProperty("width").GetDouble(), rect.RootElement.GetProperty("height").GetDouble());
+    }
+
+    // The toolbar's bar has a 1px border and 4px padding, around a 16px grip, its six buttons in this order, and a
+    // 24px collapse button, 4px apart.
     private static async Task ClickToolbarAsync(Page page, string button)
     {
         string[] buttons = ["Record", "Pick locator", "Assert visible", "Assert text", "Assert value", "Assert snapshot"];
-        string json = await page.EvaluateAsync<string>("() => JSON.stringify(document.querySelector('dramaturge-toolbar').getBoundingClientRect())", cancellationToken: TestContext.Current.CancellationToken);
-        using JsonDocument rect = JsonDocument.Parse(json);
-        double left = rect.RootElement.GetProperty("left").GetDouble();
-        double width = rect.RootElement.GetProperty("width").GetDouble();
-        double top = rect.RootElement.GetProperty("top").GetDouble();
-        double height = rect.RootElement.GetProperty("height").GetDouble();
-        await page.Mouse.ClickAsync(left + (width * (Array.IndexOf(buttons, button) + 0.5) / buttons.Length), top + (height / 2), cancellationToken: TestContext.Current.CancellationToken);
+        ToolbarBox box = await GetToolbarBoxAsync(page);
+        double width = (box.Width - 10 - 16 - 24 - (7 * 4)) / buttons.Length;
+        double left = box.Left + 5 + 16 + 4 + (Array.IndexOf(buttons, button) * (width + 4));
+        await page.Mouse.ClickAsync(left + (width / 2), box.Top + (box.Height / 2), cancellationToken: TestContext.Current.CancellationToken);
     }
+
+    private sealed record ToolbarBox(double Left, double Top, double Width, double Height);
 }
