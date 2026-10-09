@@ -274,6 +274,23 @@ public class CodeRecordingIntegrationTests
     }
 
     // The page takes neither a protocol navigation nor a script's selection for the user's, so Dramaturge's calls report themselves.
+    // Buttons alike in every card are told apart by the card's heading, not by their position.
+    [Theory]
+    [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
+    public async Task ElementInOneOfSeveralCardsIsFoundByTheCardsHeading(BrowserKind browserKind)
+    {
+        await using TestPageServer server = await TestPageServer.StartAsync();
+        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.NavigateAsync(server.UrlFor("recording-cards.html"), cancellationToken: TestContext.Current.CancellationToken);
+        CodeRecording recording = await group.DefaultBrowser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        await page.Locate(new CssLocator("#blue")).ClickAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Contains("await page.GetByRole(\"listitem\").Filter(has: page.GetByRole(\"heading\", \"Blue Mug\")).GetByRole(\"button\", \"Add to cart\").ClickAsync();", code);
+    }
+
     [Theory]
     [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
     public async Task LibraryActionsAreRecordedAsTheirCalls(BrowserKind browserKind)
