@@ -118,6 +118,30 @@ public sealed class CodegenTests : IDisposable
         Assert.Contains("Picked: page.Locate(new CssLocator(\"#go\"))", result.Error);
     }
 
+    [Fact]
+    public async Task PasswordsAreMaskedWhenAskedFor()
+    {
+        await using FakeBrowserServer server = await FakeBrowserServer.StartAsync();
+        server.OnConnect = session => session.AddContext();
+        using CancellationTokenSource cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        string path = Path.Combine(this.directory.Path, "Recorded.cs");
+        JsonObject fill = Action("fill", "#password");
+        fill["value"] = "s3cret";
+        fill["target"]!["tagName"] = "input";
+        fill["target"]!["type"] = "password";
+
+        Task<ToolResult> running = RunAsync(server, cancellation.Token, "codegen", "--mask-passwords", "-o", path);
+        FakeSession session = await ConnectedSessionAsync(server);
+        string channel = await ChannelAsync(session);
+        await SendAsync(session, channel, session.Contexts[0].Id, fill);
+        await WaitUntilAsync(() => ReadWhenWritten(path)?.Contains("#password") == true);
+        cancellation.Cancel();
+        ToolResult result = await running;
+
+        Assert.Equal(["await page.Locate(new CssLocator(\"#password\")).FillAsync(Environment.GetEnvironmentVariable(\"DRAMATURGE_PASSWORD\") ?? \"\");"], result.OutputLines);
+        Assert.DoesNotContain("s3cret", File.ReadAllText(path));
+    }
+
     // On a terminal, the open statement is shown at once and rewritten in place, line by line, as it changes.
     [Fact]
     public async Task OpenStatementIsRewrittenInPlaceOnATerminal()

@@ -25,6 +25,16 @@ internal static class CodeWriter
     public const string InputNamespace = "WebDriverBiDi.Input";
 
     /// <summary>
+    /// The namespace of <see cref="Environment"/>, which a masked password is read from.
+    /// </summary>
+    public const string SystemNamespace = "System";
+
+    /// <summary>
+    /// The expression a masked password is written as.
+    /// </summary>
+    public const string MaskedPassword = "Environment.GetEnvironmentVariable(\"DRAMATURGE_PASSWORD\") ?? \"\"";
+
+    /// <summary>
     /// The using directive's name that brings <see cref="Assertions.Expect(ElementLocator)"/> into scope.
     /// </summary>
     public const string AssertionsNamespace = "static Dramaturge.Assertions";

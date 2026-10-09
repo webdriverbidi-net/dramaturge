@@ -71,7 +71,7 @@ internal static class Codegen
             }
         });
         Page page = browser.Pages.Count > 0 ? browser.Pages[0] : await browser.NewPageAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-        CodeRecording recording = await browser.RecordCodeAsync(new CodeRecordingOptions() { Target = settings.Target }, cancellationToken).ConfigureAwait(false);
+        CodeRecording recording = await browser.RecordCodeAsync(new CodeRecordingOptions() { Target = settings.Target, MaskPasswords = settings.MaskPasswords }, cancellationToken).ConfigureAwait(false);
         await using (recording.ConfigureAwait(false))
         {
             if (!Save(recording, settings.OutputPath, error))

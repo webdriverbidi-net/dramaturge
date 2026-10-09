@@ -18,6 +18,7 @@ dramaturge codegen https://example.com/login --target xunit -o LoginTests.cs
 | `--channel` | The browser's release channel, named as `dramaturge install` names it: `stable` (the default), `beta`, `dev`, and `canary` for Chrome and Edge, or `nightly` and `esr` for Firefox |
 | `--test-id-attribute` | The attribute test IDs are read from; the default is `data-testid` |
 | `-o`, `--output` | A file kept up to date with the whole code as it is recorded |
+| `--mask-passwords` | Writes a value typed into, or expected of, a password field as `Environment.GetEnvironmentVariable("DRAMATURGE_PASSWORD") ?? ""` instead of as typed |
 
 A statement stays open while what you do next can still change it: typing more into the same field, the second click of a double click, or the navigation, popup, download, or dialog an action causes. In a terminal, the open statement is printed at once and rewritten in place as it changes; when standard output is redirected, each statement is printed once it is complete, since a printed line cannot be taken back. Each locator picked with the toolbar is printed to standard error. With `-o`, the file is rewritten whenever a statement starts, changes, or completes, so it always has the open statement too; without it, the whole file is printed when recording ends. Recording ends when you close the browser, or press Ctrl+C. The browser is downloaded, if it must be, as [Browser Setup](browser-setup.md) describes, and `--path` chooses the cache as for every command.
 
@@ -113,4 +114,4 @@ A browser records code once at a time; starting another recording while one is r
 - **Chrome frames:** Chrome's role lookup does not find elements in a same-origin child frame ([issue 571486947](https://issues.chromium.org/issues/571486947)), so an element there is found by its text or attributes instead of its role.
 - **Firefox text:** Firefox cannot look elements up by their rendered text, so `GetByText` is never chosen there.
 - **Shadow roots:** an element in a shadow root gets a role or attribute locator where one finds it; its CSS path starts inside the shadow root, so it works only with `DramaturgeOptions.PierceShadowRoots`. An action in a frame whose element is in a shadow root is not recorded.
-- **Typed values:** what you type is written into the code as it is, passwords included.
+- **Typed values:** what you type is written into the code as it is, passwords included, unless passwords are masked (`--mask-passwords`, or `CodeRecordingOptions.MaskPasswords`). Masking covers `input type="password"` fields only, and every one reads the same `DRAMATURGE_PASSWORD` variable, so a form with two different passwords needs its code edited.
