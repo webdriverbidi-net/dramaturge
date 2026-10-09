@@ -41,6 +41,7 @@ internal static class SessionText
             "url" or "snapshot" => [Url(), .. Page(result)],
             "tab" => [$"Switched to tab [{result.GetProperty("index").GetInt32()}] {Url()}", .. Page(result)],
             "tabs" => Content([.. result.GetProperty("tabs").EnumerateArray().Select(tab => $"{(tab.GetProperty("current").GetBoolean() ? "*" : " ")} [{tab.GetProperty("index").GetInt32()}] {tab.GetProperty("url").GetString()} — {tab.GetProperty("title").GetString()}")]),
+            "click" or "fill" or "press" or "select" or "check" or "uncheck" or "hover" or "upload" => Action(command, result),
             "screenshot" => [$"Saved a screenshot of {result.GetProperty("bytes").GetInt32()} bytes to {result.GetProperty("path").GetString()}"],
             _ => Console(result.GetProperty("messages")),
         };
@@ -57,6 +58,73 @@ internal static class SessionText
 
         return Content(lines);
     }
+
+    // What the action did and led to, and the snapshot after it: in full after a navigation, or when its changes would
+    // be longer, and otherwise its changes.
+    private static IReadOnlyList<string> Action(string command, JsonElement result)
+    {
+        string reference = result.GetProperty("ref").GetString()!;
+        string done = command switch
+        {
+            "click" => $"{(result.GetProperty("double").GetBoolean() ? "Double-clicked" : "Clicked")} {reference}",
+            "fill" => $"Filled {reference}",
+            "press" => $"Pressed {result.GetProperty("key").GetString()} on {reference}",
+            "select" => $"Selected {Count(result.GetProperty("selected").GetArrayLength(), "option")} in {reference}",
+            "check" => $"Checked {reference}",
+            "uncheck" => $"Unchecked {reference}",
+            "hover" => $"Hovered over {reference}",
+            _ => $"Uploaded {Count(result.GetProperty("files").GetInt32(), "file")} to {reference}",
+        };
+        bool navigated = result.GetProperty("navigated").GetBoolean();
+        List<string> lines = [navigated ? $"{done}, and the page navigated to {result.GetProperty("url").GetString()}" : done];
+        if (result.TryGetProperty("snapshotError", out _))
+        {
+            lines.Add("No snapshot was taken, as the page was changing. Run 'dramaturge snapshot' to see it.");
+        }
+
+        List<string> content = [.. result.GetProperty("effects").EnumerateArray().Select(Effect)];
+        if (navigated)
+        {
+            content.Add($"Title: {result.GetProperty("title").GetString()}");
+        }
+        else if (result.TryGetProperty("snapshot", out _))
+        {
+            content.Add("Snapshot:");
+        }
+
+        if (result.TryGetProperty("snapshot", out JsonElement snapshot) && snapshot.ValueKind == JsonValueKind.String)
+        {
+            content.AddRange(snapshot.GetString()!.Split('\n'));
+        }
+        else if (result.TryGetProperty("changes", out JsonElement changes))
+        {
+            if (changes.GetArrayLength() == 0)
+            {
+                lines.Add("The snapshot did not change.");
+            }
+            else
+            {
+                content.Add("Changes:");
+                content.AddRange(changes.EnumerateArray().Select(line => line.GetString()!));
+            }
+        }
+
+        return content.Count == 0 ? lines : [.. lines, .. Content(content)];
+    }
+
+    private static string Effect(JsonElement effect)
+    {
+        string Text(string name) => effect.GetProperty(name).GetString()!;
+        return Text("kind") switch
+        {
+            "dialog" => $"Dialog ({Text("type")}): \"{Text("message")}\" — {Text("answer")}",
+            "download" => $"Download: {Text("fileName")} from {Text("url")}{(effect.GetProperty("saved").GetBoolean() ? string.Empty : " — refused; start the session with --downloads <dir> to save downloads")}",
+            "tab" => $"Opened tab [{effect.GetProperty("index").GetInt32()}] {Text("url")}",
+            _ => $"Console error: {Text("text")}",
+        };
+    }
+
+    private static string Count(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
 
     private static IReadOnlyList<string> Console(JsonElement messages)
     {
