@@ -59,6 +59,7 @@ internal static class SessionClient
 
         JsonElement error = message.GetProperty("error");
         string? hint = error.GetProperty("hint").ValueKind == JsonValueKind.String ? error.GetProperty("hint").GetString() : null;
-        return new SessionReply(null, new SessionError(error.GetProperty("code").GetString()!, error.GetProperty("message").GetString()!, hint));
+        string? details = error.TryGetProperty("details", out JsonElement detailsValue) ? detailsValue.GetString() : null;
+        return new SessionReply(null, new SessionError(error.GetProperty("code").GetString()!, error.GetProperty("message").GetString()!, hint, details));
     }
 }

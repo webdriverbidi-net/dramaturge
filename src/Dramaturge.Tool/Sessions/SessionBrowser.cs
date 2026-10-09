@@ -5,9 +5,11 @@
 
 namespace Dramaturge.Tool.Sessions;
 
+using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using WebDriverBiDi;
+using WebDriverBiDi.BrowsingContext;
 using WebDriverBiDi.Input;
 using WebDriverBiDi.Log;
 using WebDriverBiDi.Session;
@@ -152,6 +154,7 @@ internal sealed class SessionBrowser : IDisposable
                 "check" => await this.ActAsync(command, arguments, (locator, _, token) => locator.CheckAsync(cancellationToken: token), snapshot, cancellationToken).ConfigureAwait(false),
                 "uncheck" => await this.ActAsync(command, arguments, (locator, _, token) => locator.UncheckAsync(cancellationToken: token), snapshot, cancellationToken).ConfigureAwait(false),
                 "hover" => await this.ActAsync(command, arguments, (locator, _, token) => locator.HoverAsync(cancellationToken: token), snapshot, cancellationToken).ConfigureAwait(false),
+                "expect" => Texts(arguments, "condition") is List<string> words ? await this.ExpectAsync(words, Number(arguments, "timeout"), cancellationToken).ConfigureAwait(false) : BadArguments(command),
                 "upload" => Texts(arguments, "files") is List<string> files ? await this.UploadAsync(arguments, files, snapshot, cancellationToken).ConfigureAwait(false) : BadArguments(command),
                 "console" => this.ReadConsole(Flag(arguments, "all")),
                 _ => null,
@@ -205,6 +208,35 @@ internal sealed class SessionBrowser : IDisposable
         ClickOptions options = new() { Button = Text(arguments, "button") switch { "right" => PointerButton.Right, "middle" => PointerButton.Middle, _ => PointerButton.Left } };
         result["double"] = Flag(arguments, "double");
         return Flag(arguments, "double") ? locator.DblClickAsync(options, cancellationToken) : locator.ClickAsync(options, cancellationToken);
+    }
+
+    // A condition, as expect takes it: url, title, or text and a value, or a ref and a state, or text or value and a
+    // value, or snapshot and, if any, a template.
+    private static Condition? ParseCondition(List<string> words)
+    {
+        return words switch
+        {
+            ["url" or "title", string value] => new Condition(words[0], null, value),
+            ["text", string value] => new Condition("page-text", null, value),
+            [string reference, "visible" or "hidden" or "enabled" or "checked" or "unchecked" or "snapshot"] => new Condition(words[1], reference, null),
+            [string reference, "text" or "value" or "snapshot", string value] => new Condition(words[1], reference, value),
+            _ => null,
+        };
+    }
+
+    private static string Describe(Condition condition)
+    {
+        return condition.Kind switch
+        {
+            "url" => $"the tab's URL is {condition.Value}",
+            "title" => $"the tab's title is \"{condition.Value}\"",
+            "page-text" => $"the tab's page contains \"{condition.Value}\"",
+            "unchecked" => $"{condition.Reference} is not checked",
+            "text" => $"{condition.Reference} contains \"{condition.Value}\"",
+            "value" => $"{condition.Reference} has the value \"{condition.Value}\"",
+            "snapshot" => $"{condition.Reference} matches {(condition.Value is null ? "its snapshot" : "the snapshot given")}",
+            _ => $"{condition.Reference} is {condition.Kind}",
+        };
     }
 
     // A key, such as Enter, a, or Control+Shift+a: modifier keys, then a key named as Keys names it, or a character.
@@ -491,6 +523,95 @@ internal sealed class SessionBrowser : IDisposable
         return await this.ActAsync("press", arguments, (locator, result, token) => PressAsync(locator, key, press, result, token), snapshot, cancellationToken).ConfigureAwait(false);
     }
 
+    // Waits until a condition is met, through the library's expectations, which the session's code records when they
+    // are of a kind it records.
+    private async Task<DaemonAnswer> ExpectAsync(List<string> words, int? seconds, CancellationToken cancellationToken)
+    {
+        if (seconds <= 0)
+        {
+            return DaemonAnswer.Failed(CommandOutput.Usage, "--timeout must be at least 1 second.");
+        }
+
+        if (ParseCondition(words) is not Condition condition)
+        {
+            return DaemonAnswer.Failed(CommandOutput.Usage, $"'{string.Join(" ", words)}' is not a condition, such as 'e5 visible', 'e5 text Saved', or 'url https://example.com/'.", "Run 'dramaturge expect --help' for the conditions.");
+        }
+
+        if (this.Current() is not Page page)
+        {
+            return NoTabOpen();
+        }
+
+        ElementLocator? locator = null;
+        if (condition.Reference is string reference)
+        {
+            Target target = this.Find(page, reference);
+            if (target.Failure is not null)
+            {
+                return target.Failure;
+            }
+
+            locator = target.Locator;
+        }
+
+        TimeSpan timeout = seconds is int given ? TimeSpan.FromSeconds(given) : this.browser.Group.Options.ExpectTimeout;
+        string described = Describe(condition);
+        Dictionary<string, object?> result = new() { ["condition"] = described };
+        try
+        {
+            await page.BringToFrontAsync(cancellationToken).ConfigureAwait(false);
+            switch (condition.Kind)
+            {
+                case "url":
+                    await Assertions.Expect(page).ToHaveUrlAsync(condition.Value!, timeout: timeout, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case "title":
+                    await Assertions.Expect(page).ToHaveTitleAsync(condition.Value!, timeout: timeout, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case "page-text":
+                    await Assertions.Expect(page.Locate(new CssLocator("body"))).ToContainTextAsync(condition.Value!, timeout: timeout, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case "visible":
+                    await Assertions.Expect(locator!).ToBeVisibleAsync(timeout, cancellationToken).ConfigureAwait(false);
+                    break;
+                case "hidden":
+                    await Assertions.Expect(locator!).ToBeHiddenAsync(timeout, cancellationToken).ConfigureAwait(false);
+                    break;
+                case "enabled":
+                    await Assertions.Expect(locator!).ToBeEnabledAsync(timeout, cancellationToken).ConfigureAwait(false);
+                    break;
+                case "checked":
+                    await Assertions.Expect(locator!).ToBeCheckedAsync(timeout, cancellationToken).ConfigureAwait(false);
+                    break;
+                case "unchecked":
+                    await Assertions.Expect(locator!).Not.ToBeCheckedAsync(timeout, cancellationToken).ConfigureAwait(false);
+                    break;
+                case "text":
+                    await Assertions.Expect(locator!).ToContainTextAsync(condition.Value!, timeout: timeout, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case "value":
+                    await Assertions.Expect(locator!).ToHaveValueAsync(condition.Value!, timeout, cancellationToken).ConfigureAwait(false);
+                    break;
+                default:
+                    // Without a template, the element's snapshot now is the one expected.
+                    string template = condition.Value ?? (await locator!.AriaSnapshotAsync(new AriaSnapshotOptions() { IncludeRefs = false }, timeout, cancellationToken).ConfigureAwait(false)).ToString();
+                    await Assertions.Expect(locator!).ToMatchAriaSnapshotAsync(template, timeout, cancellationToken).ConfigureAwait(false);
+                    result["template"] = template;
+                    break;
+            }
+        }
+        catch (Exception ex) when (ex is ExpectationFailedException or WebDriverBiDiTimeoutException)
+        {
+            return new DaemonAnswer(null, new SessionError("expectation-failed", $"Not met within {timeout.TotalSeconds.ToString(CultureInfo.InvariantCulture)} second{(timeout == TimeSpan.FromSeconds(1) ? string.Empty : "s")}: {described}.", null, ex.Message));
+        }
+        catch (ArgumentException ex)
+        {
+            return DaemonAnswer.Failed(CommandOutput.Usage, ex.Message);
+        }
+
+        return DaemonAnswer.Of(result);
+    }
+
     // Only files in the session's upload directories, or below them, links followed, are uploaded.
     private async Task<DaemonAnswer> UploadAsync(JsonElement arguments, List<string> files, bool snapshot, CancellationToken cancellationToken)
     {
@@ -645,6 +766,9 @@ internal sealed class SessionBrowser : IDisposable
 
     // A tab's latest snapshot, with the number of documents each of its frames had had when it was taken.
     private sealed record PageSnapshot(AriaSnapshot Snapshot, IReadOnlyDictionary<string, int> Documents);
+
+    // A condition expect waits for: of the tab, or, with a ref, of its element.
+    private sealed record Condition(string Kind, string? Reference, string? Value);
 
     // A key to press, as the browser takes it, with the modifier keys held down.
     private sealed record KeyPress(string Key, KeyModifiers Modifiers);

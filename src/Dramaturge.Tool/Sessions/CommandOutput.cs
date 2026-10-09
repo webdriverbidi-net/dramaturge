@@ -18,7 +18,8 @@ internal static class CommandOutput
 
     /// <summary>
     /// Writes a command's result. As text, a result goes to the output and an error to the error writer, as
-    /// <c>error[code]: message — hint</c>; as JSON, either goes to the output.
+    /// <c>error[code]: message — hint</c>, followed by any details between the page content lines; as JSON, either
+    /// goes to the output.
     /// </summary>
     /// <param name="result">What the command produced.</param>
     /// <param name="json">A value indicating whether to write JSON.</param>
@@ -34,6 +35,13 @@ internal static class CommandOutput
         else if (result.Error is SessionError failure)
         {
             error.WriteLine(failure.Hint is null ? $"error[{failure.Code}]: {failure.Message}" : $"error[{failure.Code}]: {failure.Message} — {failure.Hint}");
+            if (failure.Details is not null)
+            {
+                foreach (string line in (string[])[SessionText.ContentStart, .. failure.Details.Split('\n'), SessionText.ContentEnd])
+                {
+                    error.WriteLine(line);
+                }
+            }
         }
         else
         {

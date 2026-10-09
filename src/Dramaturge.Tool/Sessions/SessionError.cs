@@ -11,4 +11,5 @@ namespace Dramaturge.Tool.Sessions;
 /// <param name="Code">A stable code, such as <c>no-session</c>.</param>
 /// <param name="Message">What went wrong.</param>
 /// <param name="Hint">What to do about it, or <see langword="null"/>.</param>
-internal sealed record SessionError(string Code, string Message, string? Hint = null);
+/// <param name="Details">What the page showed when it went wrong, which is page content, or <see langword="null"/>.</param>
+internal sealed record SessionError(string Code, string Message, string? Hint = null, string? Details = null);

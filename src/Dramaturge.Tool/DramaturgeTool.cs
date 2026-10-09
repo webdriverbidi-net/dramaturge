@@ -146,7 +146,8 @@ public static class DramaturgeTool
         {
             List<ParseError> unrecognized = [.. parseResult.Errors.Where(problem => parseResult.UnmatchedTokens.Any(token => problem.Message.Contains($"'{token}'", StringComparison.Ordinal)))];
             IEnumerable<ParseError> reported = unrecognized.Count > 0 ? unrecognized : parseResult.Errors;
-            SessionError usage = new(CommandOutput.Usage, string.Join(" ", reported.Select(problem => problem.Message)), $"Run '{CommandPath(parseResult.CommandResult)} --help' for usage.");
+            string hint = parseResult.UnmatchedTokens.FirstOrDefault() == "wait" ? "To wait until a condition is met, use 'dramaturge expect'." : $"Run '{CommandPath(parseResult.CommandResult)} --help' for usage.";
+            SessionError usage = new(CommandOutput.Usage, string.Join(" ", reported.Select(problem => problem.Message)), hint);
             return Task.FromResult(CommandOutput.Write(CommandOutcome.Failure(usage), args.Contains("--json"), output, error));
         }
 
@@ -330,6 +331,12 @@ public static class DramaturgeTool
         Option<bool> doubleOption = new("--double") { Description = "Click twice, as a double click." };
         Option<string> buttonOption = new("--button") { Description = "The mouse button: left (the default), right, or middle.", DefaultValueFactory = _ => "left" };
         buttonOption.AcceptOnlyFromAmong("left", "right", "middle");
+        Argument<string[]> conditionArgument = new("condition")
+        {
+            Description = "The condition: e5 visible, hidden, enabled, checked, or unchecked; e5 text <text> or value <value>; e5 snapshot [<template>]; or, of the tab, url <url>, title <title>, or text <text>.",
+            Arity = ArgumentArity.OneOrMore,
+        };
+        Option<int?> timeoutOption = new("--timeout") { Description = "The seconds to wait for the condition; the default is 5." };
         Option<bool> byValueOption = new("--by-value") { Description = "Match options by their values, not their labels." };
         Command Page(string name, string description, Func<ParseResult, Dictionary<string, object?>> arguments, params Symbol[] symbols)
         {
@@ -373,6 +380,7 @@ public static class DramaturgeTool
             Page("uncheck", "Uncheck a checkbox, and show what changed.", parseResult => Act(parseResult), refArgument, noSnapshotOption),
             Page("hover", "Move the mouse over an element, and show what changed.", parseResult => Act(parseResult), refArgument, noSnapshotOption),
             Page("upload", "Choose files for a file input, and show what changed.", parseResult => Act(parseResult, new() { ["files"] = parseResult.GetValue(filesArgument)!.Select(Path.GetFullPath).ToArray() }), refArgument, filesArgument, noSnapshotOption),
+            Page("expect", "Wait until a condition is met, and assert it; the session's code records the assertion.", parseResult => new() { ["condition"] = parseResult.GetValue(conditionArgument), ["timeout"] = parseResult.GetValue(timeoutOption) }, conditionArgument, timeoutOption),
             Page("console", "Show the console messages, and uncaught errors, of the session's tabs since the last console command.", parseResult => new() { ["all"] = parseResult.GetValue(allOption) }, allOption),
         ];
     }

@@ -132,6 +132,7 @@ dramaturge session stop
 | `hover` *ref* | Moves the mouse over the element |
 | `upload` *ref* *file*... | Chooses files for a file input |
 | `screenshot -o` *file* `--ref` *ref* | Saves a PNG of the element alone |
+| `expect` *condition* | Waits until the condition is met, and asserts it, as the next section describes |
 
 `open`, `back`, `forward`, and `reload` show the address, title, and snapshot of the page they arrive at, taken as soon as the browser reports the navigation complete; `--no-snapshot` leaves the snapshot out. A tab that a page opens becomes one of the session's tabs, and when the current tab closes, the last tab left becomes the current one.
 
@@ -144,6 +145,28 @@ Files are uploaded only from the directory the session was started in, those giv
 What a page supplies, such as its title, snapshot, console messages, and dialogs, is written between the lines `--- page content (untrusted) ---` and `--- end of page content ---`, so that a program, or an agent, can tell it from the tool's own words and treat it as data rather than instructions.
 
 With `--allow-origin`, `open` refuses an address of another origin, and the browser does not load a page or frame of another origin however it is reached, as by a link or a redirect. `open` refuses `file:` URLs unless the session was started with `--allow-file-urls`.
+
+### Expectations
+
+`expect` waits until a condition is met, for up to 5 seconds or the seconds `--timeout` gives, and fails with `expectation-failed` if it is not. It is how a session waits for something, such as the page an action leads to, as well as how it asserts it; the session's code records each expectation met that `codegen` records too, so the test it gives waits and asserts in the same places.
+
+| Condition | Is met when |
+| --- | --- |
+| *ref* `visible`, `hidden`, `enabled` | The element is visible, hidden or gone, or enabled |
+| *ref* `checked`, `unchecked` | The checkbox or radio button is checked, or not |
+| *ref* `text` *text* | The element's text contains the text |
+| *ref* `value` *value* | The field's value is the value |
+| *ref* `snapshot` [*template*] | The element's [accessibility snapshot](accessibility-snapshots.md) matches the template, or, without one, its snapshot as it is now, which is shown |
+| `url` *url*, `title` *title* | The tab's address, or title, is the one given |
+| `text` *text* | The text of the tab's page, hidden text included, contains the text |
+
+```bash
+dramaturge click e5
+dramaturge expect url https://example.com/welcome --timeout 30
+dramaturge expect text "Welcome, Ada"
+```
+
+`hidden` and `enabled` are not recorded in the code, so a test from the session does not wait for them. When an expectation fails, what the page had instead follows the error between the page content lines, or, with `--json`, is the error's `details`. There is no `wait` command; `expect` waits.
 
 ## The Cache
 
