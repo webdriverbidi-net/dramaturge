@@ -103,7 +103,7 @@ Session commands write their result as text, and an error to standard error as `
 
 ## Driving a Session
 
-These commands drive a session's browser, one command at a time; each takes `--session` to name the session, and `--json`:
+These commands drive a session's browser, one command at a time; each takes `--session` to name the session, and `--json`. [Driving a Browser from an Agent](https://webdriverbidi-net.github.io/dramaturge/articles/driving-a-browser.html) describes how they fit together.
 
 ```bash
 dramaturge session start

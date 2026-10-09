@@ -17,6 +17,10 @@ The skill is plain Markdown in the repository's [`skills/dramaturge`](https://gi
 
 For code that works with the WebDriver BiDi protocol directly, WebDriverBiDi.NET publishes its own skill; see its [documentation](https://webdriverbidi-net.github.io/webdriverbidi-net/articles/coding-agents.html).
 
+## Driving a Browser
+
+An agent that runs shell commands can also drive a browser itself, through the command-line tool's sessions: open a page, read its accessibility snapshot, act on its elements, check the result, and export what it did as a Dramaturge test. [Driving a Browser from an Agent](driving-a-browser.md) describes how.
+
 ## The Documentation as Text
 
 The documentation site publishes two files for language models, at its root:
