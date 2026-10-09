@@ -215,6 +215,23 @@ public sealed class CodeRecording : IAsyncDisposable
         return frame == frame.Page.MainFrame && frame.Page.Browser.ActiveCodeRecording is CodeRecording recording ? recording.RecordNavigationAsync(frame.Page, call, navigate) : navigate();
     }
 
+    /// <summary>
+    /// Records an assertion on a page of a browser recording code, once it is met.
+    /// </summary>
+    /// <param name="page">The page.</param>
+    /// <param name="call">The call, after <c>Expect(page).</c>, such as <c>ToHaveTitleAsync("Home")</c>.</param>
+    internal static void RecordPageAssertion(Page page, string call)
+    {
+        if (page.Browser.ActiveCodeRecording is CodeRecording recording)
+        {
+            recording.Enqueue(() => recording.ChangeAsync(settled =>
+            {
+                settled.AddRange(recording.TakePending());
+                settled.Add(new($"await Expect({recording.GetPageVariable(page, settled)}).{call};", [CodeWriter.AssertionsNamespace]));
+            }));
+        }
+    }
+
     private static bool IsWithin(Frame frame, Frame ancestor)
     {
         for (Frame? current = frame; current is not null; current = current.ParentFrame)

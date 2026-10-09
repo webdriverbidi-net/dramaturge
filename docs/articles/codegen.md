@@ -100,7 +100,7 @@ When none finds the element alone, a locator is looked for within the element's 
 
 [!code-csharp[Record Code](../code/CodegenSamples.cs#RecordCode)]
 
-Dramaturge's own calls on a recording browser's pages are recorded too: `NavigateAsync`, `ReloadAsync`, `GoBackAsync`, and `GoForwardAsync` as themselves, never as the effect of an earlier action; `SelectOptionAsync`, whose events the page does not take for a user's; and `SetInputFilesAsync` with the paths it was given rather than the files' names. Its other actions are recorded from the events they cause, as a user's are.
+Dramaturge's own calls on a recording browser's pages are recorded too: `NavigateAsync`, `ReloadAsync`, `GoBackAsync`, and `GoForwardAsync` as themselves, never as the effect of an earlier action; `SelectOptionAsync`, whose events the page does not take for a user's; and `SetInputFilesAsync` with the paths it was given rather than the files' names. Its other actions are recorded from the events they cause, as a user's are. Expectations that pass are recorded as well, where the toolbar could add them: `ToBeVisibleAsync`, `ToContainTextAsync` and `ToHaveValueAsync` with a string, `ToBeCheckedAsync` and `Not.ToBeCheckedAsync`, and `ToMatchAriaSnapshotAsync`, each with a locator chosen for the element it checked, and a page's `ToHaveUrlAsync` and `ToHaveTitleAsync` with a string. Other expectations are not recorded, nor are ones that ignore case, read the rendered text, or are otherwise negated.
 
 A browser records code once at a time; starting another recording while one is running throws `InvalidOperationException`. Recording starts in the pages already open before `RecordCodeAsync` returns, and in each page or frame loaded later as its document loads.
 

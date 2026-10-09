@@ -205,6 +205,13 @@
       session?.report(element, { kind: 'setInputFiles', files });
     },
 
+    // An assertion the library met, of a kind the toolbar adds, with its value: the text, the value, whether the
+    // element is checked, or the snapshot template.
+    reportAssertion(element, kind, value) {
+      const details = { assertText: { text: value }, assertValue: { value }, assertChecked: { checked: value }, assertSnapshot: { snapshot: value } }[kind];
+      session?.report(element, { kind, ...details });
+    },
+
     // Each frame element's window, then its description as a message has it.
     describeFrames(testIdAttribute) {
       const describer = new Acquiescence.ElementDescriber();
