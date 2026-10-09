@@ -171,13 +171,13 @@ dramaturge expect text "Welcome, Ada"
 
 ### Exporting the Session as Code
 
-`code` shows everything done in the session as C#, as `codegen` would have written it: a program, or, with `--target`, an xUnit, NUnit, MSTest, or TUnit test class. `-o` writes it to a file instead. The actions and expectations of the session become statements, with locators chosen as [Code Generation](https://webdriverbidi-net.github.io/dramaturge/articles/codegen.html#how-locators-are-chosen) describes, so that refs, which name elements only in the session, never appear in the code; the session's own navigations become `NavigateAsync`, and an action that navigated is wrapped in `RunAndWaitForNavigationAsync`.
+`code` shows everything done in the session since it started, or since `code --reset`, as C#, as `codegen` would have written it: a program, or, with `--target`, an xUnit, NUnit, MSTest, or TUnit test class. `-o` writes it to a file instead. The actions and expectations of the session become statements, with locators chosen as [Code Generation](https://webdriverbidi-net.github.io/dramaturge/articles/codegen.html#how-locators-are-chosen) describes, so that refs, which name elements only in the session, never appear in the code; the session's own navigations become `NavigateAsync`, and an action that navigated is wrapped in `RunAndWaitForNavigationAsync`.
 
 ```bash
 dramaturge code --target xunit -o LoginTests.cs
 ```
 
-The code is written without the page content lines, so that it can be redirected to a file, though it holds text from the pages, such as accessible names, in its string literals; review it as any generated code. The code of a session started with `--dialogs accept` sets its browser to accept dialogs too.
+The code is written without the page content lines, so that it can be redirected to a file, though it holds text from the pages, such as accessible names, in its string literals; review it as any generated code. The code of a session started with `--dialogs accept` sets its browser to accept dialogs too. `--reset` starts the recording over once the code is written, so that the code comes from what is done next, without the exploring before it; `open` the page the test starts from right after it.
 
 ## The Cache
 

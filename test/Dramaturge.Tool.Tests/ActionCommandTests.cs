@@ -577,6 +577,29 @@ public sealed partial class ActionCommandTests : IAsyncLifetime
         Assert.StartsWith("error[write-failed]: The code could not be written to ", unwritable.Error);
     }
 
+    // After a reset, the code is what was done since; a reset that cannot write its file does not start over.
+    [Fact]
+    public async Task CodeWithResetStartsTheRecordingOver()
+    {
+        await this.sessions.RunAsync("session", "start");
+        string path = Path.Combine(this.sessions.Directory, "Exploring.cs");
+        await this.sessions.RunAsync("open", "https://example.com/exploring", "--no-snapshot");
+
+        ToolResult unwritable = await this.sessions.RunAsync("code", "--reset", "-o", Path.Combine(this.sessions.Directory, "missing", "Recorded.cs"));
+        ToolResult explored = await this.sessions.RunAsync("code", "--reset", "-o", path);
+        await this.sessions.RunAsync("open", "https://example.com/start", "--no-snapshot");
+        ToolResult json = await this.sessions.RunAsync("code", "--reset", "--json");
+        ToolResult after = await this.sessions.RunAsync("code");
+
+        Assert.StartsWith("error[write-failed]", unwritable.Error);
+        Assert.Equal([$"Wrote the code for program to {path}, and started the recording over."], explored.OutputLines);
+        Assert.Contains("https://example.com/exploring", File.ReadAllText(path));
+        Assert.Contains("\"reset\":true", json.Output);
+        Assert.Contains("https://example.com/start", json.Output);
+        Assert.DoesNotContain("https://example.com/exploring", json.Output);
+        Assert.DoesNotContain("NavigateAsync", after.Output);
+    }
+
     // The code sets its browser to answer dialogs as the session's did.
     [Theory]
     [InlineData("accept", true)]
