@@ -177,7 +177,7 @@ dramaturge expect text "Welcome, Ada"
 dramaturge code --target xunit -o LoginTests.cs
 ```
 
-The code is written without the page content lines, so that it can be redirected to a file, though it holds text from the pages, such as accessible names, in its string literals; review it as any generated code. A session started with `--dialogs accept` adds a note, on standard error, that the code does not answer dialogs.
+The code is written without the page content lines, so that it can be redirected to a file, though it holds text from the pages, such as accessible names, in its string literals; review it as any generated code. The code of a session started with `--dialogs accept` sets its browser to accept dialogs too.
 
 ## The Cache
 

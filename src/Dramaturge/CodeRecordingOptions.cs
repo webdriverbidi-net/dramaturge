@@ -28,4 +28,12 @@ public sealed class CodeRecordingOptions
     /// <see langword="false"/>: the value is written as typed.
     /// </summary>
     public bool MaskPasswords { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether the recorded browser accepts the dialogs its pages open, so that the code
+    /// sets its browser to accept them too: a program through its launcher, and a test class through its own
+    /// launcher, as a session capability. The default is <see langword="false"/>: the code leaves dialogs to the
+    /// browser, which dismisses them.
+    /// </summary>
+    public bool AcceptDialogs { get; init; }
 }

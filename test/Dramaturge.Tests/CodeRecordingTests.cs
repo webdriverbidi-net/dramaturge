@@ -167,6 +167,25 @@ public class CodeRecordingTests
             Statements(code));
     }
 
+    // A browser that accepted dialogs while recording is set to accept them when the code runs, for the whole session.
+    [Fact]
+    public async Task CodeOfABrowserThatAcceptsDialogsSetsItsBrowserToAcceptThem()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(new CodeRecordingOptions() { AcceptDialogs = true }, TestContext.Current.CancellationToken);
+
+        string program = await recording.StopAsync(TestContext.Current.CancellationToken);
+        string test = await recording.GetCodeAsync(CodeTarget.NUnit);
+
+        const string Accept = ".WithSessionCapability(\"unhandledPromptBehavior\", new UserPromptHandler() { Default = UserPromptHandlerType.Accept })";
+        Assert.Contains($"await using BrowserGroup group = await BrowserGroup.LaunchAsync(BrowserLauncher.ConfigureFromEnvironment().WithHeadlessOption(false){Accept});\n", program);
+        Assert.Contains("using WebDriverBiDi.Session;\n", program);
+        Assert.Contains($"    protected override BrowserLauncherBuilder ConfigureLauncher(BrowserLauncherBuilder builder) => builder{Accept};\n", test);
+        Assert.Contains("using Dramaturge.Browsers;\n", test);
+        Assert.Contains("using WebDriverBiDi.Session;\n", test);
+    }
+
     [Fact]
     public async Task CodeIsWrittenForAnyTarget()
     {

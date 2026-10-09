@@ -149,11 +149,13 @@ internal static class CodeWriter
     /// <param name="target">The target.</param>
     /// <param name="browserName">The recorded browser's name, as its session reported it, or empty when unknown.</param>
     /// <param name="testIdAttribute">The test ID attribute the recording's locators use.</param>
+    /// <param name="acceptDialogs">A value indicating whether the browser the code launches accepts dialogs.</param>
     /// <param name="statements">The statements, in order.</param>
     /// <param name="namespaces">The namespaces the statements use.</param>
     /// <returns>The file.</returns>
-    public static string File(CodeTarget target, string browserName, string testIdAttribute, IReadOnlyList<string> statements, IEnumerable<string> namespaces)
+    public static string File(CodeTarget target, string browserName, string testIdAttribute, bool acceptDialogs, IReadOnlyList<string> statements, IEnumerable<string> namespaces)
     {
+        const string AcceptDialogs = ".WithSessionCapability(\"unhandledPromptBehavior\", new UserPromptHandler() { Default = UserPromptHandlerType.Accept })";
         bool customTestId = testIdAttribute != DefaultTestIdAttribute;
         TestFramework? testFramework = target switch
         {
@@ -170,12 +172,16 @@ internal static class CodeWriter
         SortedSet<string> usings = new(StringComparer.Ordinal) { "Dramaturge" };
         usings.UnionWith(namespaces);
         usings.UnionWith(testFramework is null ? ["Dramaturge.Browsers"] : [testFramework.Package, testFramework.Namespace]);
+        if (acceptDialogs)
+        {
+            usings.UnionWith(["Dramaturge.Browsers", "WebDriverBiDi.Session"]);
+        }
 
         List<string> lines = [.. usings.Select(name => $"using {name};"), string.Empty];
         if (testFramework is null)
         {
             string options = customTestId ? $", new DramaturgeOptions() {{ TestIdAttribute = {Literal(testIdAttribute)} }}" : string.Empty;
-            lines.Add($"await using BrowserGroup group = await BrowserGroup.LaunchAsync({Launcher(browserName)}.WithHeadlessOption(false){options});");
+            lines.Add($"await using BrowserGroup group = await BrowserGroup.LaunchAsync({Launcher(browserName)}.WithHeadlessOption(false){(acceptDialogs ? AcceptDialogs : string.Empty)}{options});");
             lines.Add("Page page = await group.DefaultBrowser.NewPageAsync();");
             lines.AddRange(Indent(statements, string.Empty));
         }
@@ -197,6 +203,12 @@ internal static class CodeWriter
             if (customTestId)
             {
                 lines.AddRange([$"    protected override DramaturgeOptions? GroupOptions => new() {{ TestIdAttribute = {Literal(testIdAttribute)} }};", string.Empty]);
+            }
+
+            // The browser answers dialogs for its whole session, which every browser honors.
+            if (acceptDialogs)
+            {
+                lines.AddRange([$"    protected override BrowserLauncherBuilder ConfigureLauncher(BrowserLauncherBuilder builder) => builder{AcceptDialogs};", string.Empty]);
             }
 
             lines.AddRange([$"    {testFramework.TestAttribute}", "    public async Task Recorded()", "    {", "        Page page = this.Page;"]);

@@ -687,9 +687,6 @@ internal sealed class SessionBrowser : IDisposable
             result["path"] = path;
         }
 
-        result["notes"] = this.settings.Dialogs == UserPromptHandlerType.Accept
-            ? (string[])["The session accepted dialogs, but the code does not answer them, so they are dismissed when it runs; set the browser's unhandledPromptBehavior to accept them."]
-            : [];
         return DaemonAnswer.Of(result);
     }
 

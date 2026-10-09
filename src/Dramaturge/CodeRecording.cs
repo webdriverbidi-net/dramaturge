@@ -23,6 +23,7 @@ public sealed class CodeRecording : IAsyncDisposable
     private readonly CodeTarget target;
     private readonly bool showToolbar;
     private readonly bool maskPasswords;
+    private readonly bool acceptDialogs;
     private readonly string channelId = $"dramaturge-code-{Guid.NewGuid():N}";
     private readonly object lockObject = new();
     private readonly List<IDisposable> observers = [];
@@ -56,6 +57,7 @@ public sealed class CodeRecording : IAsyncDisposable
         this.target = options.Target;
         this.showToolbar = options.ShowToolbar;
         this.maskPasswords = options.MaskPasswords;
+        this.acceptDialogs = options.AcceptDialogs;
     }
 
     /// <summary>
@@ -352,8 +354,8 @@ public sealed class CodeRecording : IAsyncDisposable
         {
             BrowserGroup group = this.browser.Group;
             return this.pending is RecordedStep open
-                ? CodeWriter.File(target, group.BrowserName, group.Options.TestIdAttribute, [.. this.statements, open.Text], this.namespaces.Union(open.Namespaces))
-                : CodeWriter.File(target, group.BrowserName, group.Options.TestIdAttribute, this.statements, this.namespaces);
+                ? CodeWriter.File(target, group.BrowserName, group.Options.TestIdAttribute, this.acceptDialogs, [.. this.statements, open.Text], this.namespaces.Union(open.Namespaces))
+                : CodeWriter.File(target, group.BrowserName, group.Options.TestIdAttribute, this.acceptDialogs, this.statements, this.namespaces);
         }
     }
 
