@@ -1,6 +1,6 @@
 {
   "name": "dramaturge",
-  "description": "A skill that teaches coding agents to write reliable C# browser automation and tests with Dramaturge: launching browsers, user-facing locators, auto-waiting actions, retrying Expect assertions, and routes.",
+  "description": "Skills that teach coding agents to write reliable C# browser automation and tests with Dramaturge (launching browsers, user-facing locators, auto-waiting actions, retrying Expect assertions, and routes) and to drive a live browser from the shell with the dramaturge tool's sessions, exporting what was done as a test.",
   "author": {
     "name": "WebDriverBiDi.NET Committers",
     "url": "https://github.com/webdriverbidi-net"
