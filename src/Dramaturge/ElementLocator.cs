@@ -948,6 +948,37 @@ public sealed class ElementLocator
     }
 
     /// <summary>
+    /// Describes an element to a browser recording code, for an assertion of a kind to be reported once it is met,
+    /// when the element may be gone.
+    /// </summary>
+    /// <param name="node">The element.</param>
+    /// <param name="kind">The kind of assertion, such as <c>assertHidden</c>.</param>
+    /// <param name="budget">The time the call may take.</param>
+    /// <returns>The description's ID, or <see langword="null"/> when nothing is recorded.</returns>
+    internal async Task<long?> PrepareRecordedAssertionAsync(NodeRemoteValue node, string kind, TimeBudget budget)
+    {
+        if (this.Frame.Page.Browser.ActiveCodeRecording is null)
+        {
+            return null;
+        }
+
+        RemoteValue id = await this.Group.ScriptHost.CallRecorderAsync(this.Frame.Id, "(recorder, element, kind) => recorder.prepareAssertion(element, kind)", [node.ToSharedReference(), LocalValue.String(kind)], budget).ConfigureAwait(false);
+        return id is NumberRemoteValue number ? (long)number.Value : null;
+    }
+
+    /// <summary>
+    /// Reports an assertion described by <see cref="PrepareRecordedAssertionAsync"/> as met, or discards it.
+    /// </summary>
+    /// <param name="id">The description's ID.</param>
+    /// <param name="met">A value indicating whether the assertion was met.</param>
+    /// <param name="budget">The time the call may take.</param>
+    /// <returns>A task that completes when the recorder has been told.</returns>
+    internal Task FinishRecordedAssertionAsync(long id, bool met, TimeBudget budget)
+    {
+        return this.Group.ScriptHost.CallRecorderAsync(this.Frame.Id, met ? "(recorder, id) => recorder.reportPrepared(id)" : "(recorder, id) => recorder.discardPrepared(id)", [LocalValue.Number(id)], budget);
+    }
+
+    /// <summary>
     /// Checks an accessibility snapshot template with the library's script in the locator's frame.
     /// </summary>
     /// <param name="template">The template.</param>

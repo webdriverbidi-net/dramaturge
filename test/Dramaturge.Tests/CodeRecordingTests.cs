@@ -9,6 +9,8 @@ using System.Text.Json.Nodes;
 using Dramaturge.Browsers;
 using Dramaturge.TestUtilities;
 using WebDriverBiDi;
+using WebDriverBiDi.BrowsingContext;
+using static Dramaturge.Assertions;
 using static Dramaturge.TestUtilities.RecorderMessages;
 
 public class CodeRecordingTests
@@ -365,6 +367,74 @@ public class CodeRecordingTests
             Statements(code));
     }
 
+    // An expectation that an element be hidden describes the element to the recording while it is there, and has the
+    // description reported once the expectation is met, though by then the element may be gone.
+    [Fact]
+    public async Task HiddenExpectationDescribesItsElementWhileItIsThere()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        int[] lookups = [0];
+        session.RemoteEnd.AnswerWith("browsingContext.locateNodes", _ => Interlocked.Increment(ref lookups[0]) == 1 ? ProtocolJson.Nodes("spinner-1") : ProtocolJson.Nodes(0));
+        AnswerRecorder(session, prepared: Number(7), visible: true);
+
+        await Expect(page.Locate(new CssLocator("#spinner"))).ToBeHiddenAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        JsonObject prepare = RecorderCalls(session, "prepareAssertion").Single();
+        Assert.Equal("spinner-1", (string?)prepare["arguments"]![0]!["sharedId"]);
+        Assert.Equal("assertHidden", (string?)prepare["arguments"]![1]!["value"]);
+        Assert.Equal(7, (int?)RecorderCalls(session, "reportPrepared").Single()["arguments"]![0]!["value"]);
+        Assert.Empty(RecorderCalls(session, "discardPrepared"));
+    }
+
+    [Fact]
+    public async Task HiddenExpectationNotMetDiscardsItsDescription()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("spinner-1"));
+        AnswerRecorder(session, prepared: Number(7), visible: true);
+
+        await Assert.ThrowsAsync<ExpectationFailedException>(() => Expect(page.Locate(new CssLocator("#spinner"))).ToBeHiddenAsync(TimeSpan.FromMilliseconds(300), TestContext.Current.CancellationToken));
+        await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Single(RecorderCalls(session, "prepareAssertion"));
+        Assert.Equal(7, (int?)RecorderCalls(session, "discardPrepared").Single()["arguments"]![0]!["value"]);
+        Assert.Empty(RecorderCalls(session, "reportPrepared"));
+    }
+
+    // Nothing is described without a recording; a negated expectation is not recorded, nor is one in a document that
+    // records nothing; and a recording that cannot be told does not fail an expectation that was met.
+    [Fact]
+    public async Task HiddenExpectationIsNotRecordedWhenItCannotBe()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        ElementLocator spinner = page.Locate(new CssLocator("#spinner"));
+        session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("spinner-1"));
+        AnswerRecorder(session, prepared: Number(6), visible: false);
+        await Expect(spinner).ToBeHiddenAsync(cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Empty(RecorderCalls(session, "prepareAssertion"));
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        AnswerRecorder(session, prepared: Number(7), visible: true);
+        await Expect(spinner).Not.ToBeHiddenAsync(cancellationToken: TestContext.Current.CancellationToken);
+        int preparedWhenNegated = RecorderCalls(session, "prepareAssertion").Count;
+        AnswerRecorder(session, prepared: new JsonObject() { ["type"] = "null" }, visible: false);
+        await Expect(spinner).ToBeHiddenAsync(cancellationToken: TestContext.Current.CancellationToken);
+        int finishedUnrecorded = RecorderCalls(session, "reportPrepared").Count;
+        AnswerRecorder(session, prepared: Number(8), visible: false, failReport: true);
+        await Expect(spinner).ToBeHiddenAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, preparedWhenNegated);
+        Assert.Equal(0, finishedUnrecorded);
+        Assert.Equal(8, (int?)RecorderCalls(session, "reportPrepared").Single()["arguments"]![0]!["value"]);
+    }
+
     [Fact]
     public async Task AssertionsSettleAtOnceAsTheirStatements()
     {
@@ -391,6 +461,8 @@ public class CodeRecordingTests
         await SendAsync(driver, session, channel, page.Id, Action("assertChecked", "#agree", new JsonField("checked", true)));
         await SendAsync(driver, session, channel, page.Id, Action("assertChecked", "#other", new JsonField("checked", false)));
         await SendAsync(driver, session, channel, page.Id, Action("assertSnapshot", "#list", new JsonField("snapshot", "- list:\n  - listitem: Say \"\"\"hi\"\"\"\n\n  - listitem: Two\n")));
+        await SendAsync(driver, session, channel, page.Id, Action("assertEnabled", "#go"));
+        await SendAsync(driver, session, channel, page.Id, Action("assertHidden", "#spinner"));
         string code = await recording.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(
@@ -414,6 +486,8 @@ public class CodeRecordingTests
 
                   - listitem: Two
                 """");
+            await Expect(page.Locate(new CssLocator("#go"))).ToBeEnabledAsync();
+            await Expect(page.Locate(new CssLocator("#spinner"))).ToBeHiddenAsync();
 
             """"".Replace("\r\n", "\n"),
             code);
@@ -586,6 +660,26 @@ public class CodeRecordingTests
         Assert.Contains("Removing the code recording's event subscription failed", messages[1]);
         Assert.Contains($"Stopping the code recording in browsing context {page.Id} failed", messages[2]);
     }
+
+    // Answers the recorder's prepared assertions, and the element's visibility, and every other script with undefined.
+    private static void AnswerRecorder(FakeSession session, JsonObject prepared, bool visible, bool failReport = false)
+    {
+        session.RemoteEnd.AnswerWith("script.callFunction", parameters =>
+        {
+            string function = (string)parameters["functionDeclaration"]!;
+            return function.Contains("recorder.reportPrepared") && failReport ? FakeResponse.Failure("no such frame", "The document is gone.")
+                : new FakeResponse(ProtocolJson.Success(function.Contains("recorder.prepareAssertion") ? (JsonObject)prepared.DeepClone()
+                    : function.Contains("isElementVisible") ? new JsonObject() { ["type"] = "boolean", ["value"] = visible }
+                    : new JsonObject() { ["type"] = "undefined" }));
+        });
+    }
+
+    private static List<JsonObject> RecorderCalls(FakeSession session, string function)
+    {
+        return [.. session.RemoteEnd.CommandsFor("script.callFunction").Select(call => call["params"]!.AsObject()).Where(call => ((string)call["functionDeclaration"]!).Contains($"recorder.{function}"))];
+    }
+
+    private static JsonObject Number(int value) => new() { ["type"] = "number", ["value"] = value };
 
     private static async Task<OpenedPage> OpenPageAsync(string testIdAttribute = "data-testid")
     {

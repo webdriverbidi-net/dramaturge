@@ -329,6 +329,10 @@ public sealed class CodeRecording : IAsyncDisposable
                 return Assertion(matchedText?.Contains(text) == true ? "ToBeVisibleAsync()" : $"ToContainTextAsync({CodeWriter.Literal(text)})");
             case "assertValue":
                 return Assertion($"ToHaveValueAsync({Value("value")})");
+            case "assertEnabled":
+                return Assertion("ToBeEnabledAsync()");
+            case "assertHidden":
+                return Assertion("ToBeHiddenAsync()");
             case "assertChecked":
                 return Assertion(action.GetProperty("checked").GetBoolean() ? "ToBeCheckedAsync()" : "Not.ToBeCheckedAsync()");
             case "assertSnapshot":

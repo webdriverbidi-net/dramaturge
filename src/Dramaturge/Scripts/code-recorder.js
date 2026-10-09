@@ -176,10 +176,14 @@
 
   const start = (send, testIdAttribute, mode, showToolbar, layout) => {
     const describer = new Acquiescence.ElementDescriber();
-    const describe = (element, details) => {
+    const message = (element, details) => {
       const { target, ancestors } = describer.describe(element, { testIdAttribute });
-      send([JSON.stringify({ ...details, target: facts(target), ancestors: ancestors.map(facts) }), target.element, ...ancestors.map((ancestor) => ancestor.element)]);
+      return [JSON.stringify({ ...details, target: facts(target), ancestors: ancestors.map(facts) }), target.element, ...ancestors.map((ancestor) => ancestor.element)];
     };
+    const describe = (element, details) => send(message(element, details));
+    // Messages described now and sent later, by ID, for assertions met once their element may be gone.
+    const prepared = new Map();
+    let lastPrepared = 0;
     let toolbar = null;
     let current = null;
     let asked = null;
@@ -264,6 +268,18 @@
           describe(element, details);
         }
       },
+      prepare: (element, details) => {
+        prepared.set(++lastPrepared, message(element, details));
+        return lastPrepared;
+      },
+      sendPrepared: (id) => {
+        const described = prepared.get(id);
+        prepared.delete(id);
+        if (described && current === 'record') {
+          send(described);
+        }
+      },
+      discard: (id) => prepared.delete(id),
       stop: () => {
         recorder.stop();
         picker.stop();
@@ -299,6 +315,20 @@
     reportAssertion(element, kind, value) {
       const details = { assertText: { text: value }, assertValue: { value }, assertChecked: { checked: value }, assertSnapshot: { snapshot: value } }[kind];
       session?.report(element, { kind, ...details });
+    },
+
+    // An assertion whose element is described now, while it is in its document, and reported once the assertion is
+    // met, when it may be gone: its ID, or null when nothing is recorded.
+    prepareAssertion(element, kind) {
+      return session?.prepare(element, { kind }) ?? null;
+    },
+
+    reportPrepared(id) {
+      session?.sendPrepared(id);
+    },
+
+    discardPrepared(id) {
+      session?.discard(id);
     },
 
     // Each frame element's window, then its description as a message has it.

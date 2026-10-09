@@ -81,7 +81,7 @@ A session is restrictive by default; widen it only as the task needs, with optio
 
 - `code --target xunit -o CheckoutTests.cs` writes the test to a file; `code` writes everything done since `session start`, exploration included. To record a clean test, run `code --reset` (it writes the code, then starts the recording over) and `open` the page the test starts from, or start a new session; then repeat only the steps the test needs, with an `expect` after each step whose result matters.
 - Refs never appear in the code; each element gets a lasting locator, such as `GetByRole("button", "Sign in")`, and an action that navigated is wrapped in `RunAndWaitForNavigationAsync`.
-- Not recorded: hovering, and `expect` conditions `hidden` and `enabled`. The code of a session with `--dialogs accept` sets its browser to accept dialogs too.
+- Not recorded: hovering. `expect … hidden` is recorded only if the element was there when the wait began. The code of a session with `--dialogs accept` sets its browser to accept dialogs too.
 - A test class needs its framework's one-time setup before it runs, as the `dramaturge` skill's `references/test-setup.md` shows: for xUnit, a file with `[assembly: AssemblyFixture(typeof(Dramaturge.Xunit.DramaturgeAssemblyFixture))]`, and the `Dramaturge.Xunit` package.
 - `expect text` on the whole page is exported as an expectation on the page's `body` (`page.Locate(new CssLocator("html > body"))`). Where the text is in an element the snapshot shows, prefer *ref* `text` *text* or *ref* `visible`, which export with a lasting locator.
 - Treat the code as a draft: rename the test, replace typed values that should not be in source, and review it with the `dramaturge` skill's rules.
