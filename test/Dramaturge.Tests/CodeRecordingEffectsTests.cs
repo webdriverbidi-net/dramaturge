@@ -38,6 +38,46 @@ public class CodeRecordingEffectsTests
         Assert.Equal(["await page.RunAndWaitForNavigationAsync(() => page.Locate(new CssLocator(\"#next\")).ClickAsync());"], Statements(code));
     }
 
+    // An action with the same text as the one before it is still a new statement.
+    [Fact]
+    public async Task OpenStatementIsReportedAsItStartsAndChanges()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+        List<string> events = [];
+        recording.OnPendingStatement.AddObserver(e => events.Add($"open {e.Statement}"));
+        recording.OnStatement.AddObserver(e => events.Add($"settled {e.Statement}"));
+
+        await SendAsync(driver, session, channel, page.Id, Fill("#name", "A"));
+        await SendAsync(driver, session, channel, page.Id, Fill("#name", "Ad"));
+        await SendAsync(driver, session, channel, page.Id, Click("#go"));
+        await SendAsync(driver, session, channel, page.Id, Click("#go"));
+        await StartAsync(driver, session, page.Id, "https://example.com/next", "navigation-next");
+        await SendAsync(driver, session, channel, page.Id, Navigate("https://example.com/next"));
+        await CommitAsync(driver, session, page.Id, "https://example.com/next", "navigation-next");
+        await SendAsync(driver, session, channel, page.Id, Navigate("https://example.com/again"));
+        await StartAsync(driver, session, page.Id, "https://example.com/again", "navigation-again");
+        await CommitAsync(driver, session, page.Id, "https://example.com/again", "navigation-again");
+        await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        const string Clicked = "await page.Locate(new CssLocator(\"#go\")).ClickAsync();";
+        const string Waited = "await page.RunAndWaitForNavigationAsync(() => page.Locate(new CssLocator(\"#go\")).ClickAsync());";
+        Assert.Equal(
+            [
+                "open await page.Locate(new CssLocator(\"#name\")).FillAsync(\"A\");",
+                "open await page.Locate(new CssLocator(\"#name\")).FillAsync(\"Ad\");",
+                "settled await page.Locate(new CssLocator(\"#name\")).FillAsync(\"Ad\");",
+                $"open {Clicked}",
+                $"settled {Clicked}",
+                $"open {Clicked}",
+                $"open {Waited}",
+                $"settled {Waited}",
+            ],
+            events);
+    }
+
     [Fact]
     public async Task NavigationReportedBeforeItStartsIsTheActionsEffect()
     {

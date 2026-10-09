@@ -88,7 +88,9 @@ public class CodeRecordingTests
         await recording.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.Contains("FillAsync(\"Ad\");", settled);
-        Assert.DoesNotContain("#save", settled);
+
+        // The click is still open, and the code includes it as it is now.
+        Assert.Contains("#save", settled);
         Assert.Equal(["await page.Locate(new CssLocator(\"#name\")).FillAsync(\"Ad\");", "await page.Locate(new CssLocator(\"#save\")).ClickAsync();"], statements);
     }
 

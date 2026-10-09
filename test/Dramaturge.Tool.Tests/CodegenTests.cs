@@ -79,13 +79,13 @@ public sealed class CodegenTests : IDisposable
         string page = session.Contexts[0].Id;
         await SendClickAsync(session, channel, page, "#first");
         await SendClickAsync(session, channel, page, "#second");
-        string? current = null;
-        await WaitUntilAsync(() => (current = ReadWhenWritten(path))?.Contains("#first") == true);
+
+        // The file has each statement as it is recorded, the last one while it is still open.
+        await WaitUntilAsync(() => ReadWhenWritten(path)?.Contains("#second") == true);
         cancellation.Cancel();
         ToolResult result = await running;
 
         Assert.Equal(0, result.ExitCode);
-        Assert.DoesNotContain("#second", current);
         Assert.Equal(["await page.Locate(new CssLocator(\"#first\")).ClickAsync();", "await page.Locate(new CssLocator(\"#second\")).ClickAsync();"], result.OutputLines);
         string code = File.ReadAllText(path);
         Assert.Contains("public class RecordedTests : PageTest", code);
@@ -115,6 +115,42 @@ public sealed class CodegenTests : IDisposable
         cancellation.Cancel();
         ToolResult result = await running;
 
+        Assert.Contains("Picked: page.Locate(new CssLocator(\"#go\"))", result.Error);
+    }
+
+    // On a terminal, the open statement is shown at once and rewritten in place, line by line, as it changes.
+    [Fact]
+    public async Task OpenStatementIsRewrittenInPlaceOnATerminal()
+    {
+        await using FakeBrowserServer server = await FakeBrowserServer.StartAsync();
+        server.OnConnect = session => session.AddContext();
+        using CancellationTokenSource cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        JsonObject Fill(string value)
+        {
+            JsonObject fill = Action("fill", "#name");
+            fill["value"] = value;
+            return fill;
+        }
+
+        string path = Path.Combine(this.directory.Path, "Recorded.cs");
+        Task<ToolResult> running = RunAsync(server, true, cancellation.Token, "codegen", "-o", path);
+        FakeSession session = await ConnectedSessionAsync(server);
+        string channel = await ChannelAsync(session);
+        string page = session.Contexts[0].Id;
+        await SendAsync(session, channel, page, Fill("A"));
+        await SendAsync(session, channel, page, Fill("Ad"));
+        await SendAsync(session, channel, page, Action("pick", "#go"));
+        await SendClickAsync(session, channel, page, "#first");
+        await WaitUntilAsync(() => ReadWhenWritten(path)?.Contains("#first") == true);
+        cancellation.Cancel();
+        ToolResult result = await running;
+
+        const string Erase = "\u001b[1A\u001b[2K\r";
+        string newLine = Environment.NewLine;
+        string fillA = "await page.Locate(new CssLocator(\"#name\")).FillAsync(\"A\");" + newLine;
+        string fillAd = "await page.Locate(new CssLocator(\"#name\")).FillAsync(\"Ad\");" + newLine;
+        string click = "await page.Locate(new CssLocator(\"#first\")).ClickAsync();" + newLine;
+        Assert.Equal(fillA + Erase + fillAd + Erase + fillAd + click + Erase + click, result.Output);
         Assert.Contains("Picked: page.Locate(new CssLocator(\"#go\"))", result.Error);
     }
 
@@ -176,12 +212,14 @@ public sealed class CodegenTests : IDisposable
         this.directory.Dispose();
     }
 
-    private static async Task<ToolResult> RunAsync(FakeBrowserServer server, CancellationToken cancellationToken, params string[] args)
+    private static Task<ToolResult> RunAsync(FakeBrowserServer server, CancellationToken cancellationToken, params string[] args) => RunAsync(server, false, cancellationToken, args);
+
+    private static async Task<ToolResult> RunAsync(FakeBrowserServer server, bool outputIsTerminal, CancellationToken cancellationToken, params string[] args)
     {
         StringWriter output = new();
         StringWriter error = new();
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, TestContext.Current.CancellationToken);
-        int exitCode = await DramaturgeTool.RunAsync(args, output, error, configureLauncher: _ => BrowserLauncher.Configure(BrowserKind.Chrome).ConnectToExisting(server.UrlFor(SessionName)), cancellationToken: linked.Token);
+        int exitCode = await DramaturgeTool.RunAsync(args, output, error, configureLauncher: _ => BrowserLauncher.Configure(BrowserKind.Chrome).ConnectToExisting(server.UrlFor(SessionName)), outputIsTerminal: outputIsTerminal, cancellationToken: linked.Token);
         return new ToolResult(exitCode, output.ToString(), error.ToString());
     }
 

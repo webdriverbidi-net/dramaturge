@@ -19,7 +19,7 @@ dramaturge codegen https://example.com/login --target xunit -o LoginTests.cs
 | `--test-id-attribute` | The attribute test IDs are read from; the default is `data-testid` |
 | `-o`, `--output` | A file kept up to date with the whole code as it is recorded |
 
-Each statement is printed as it is recorded, and each locator picked with the toolbar is printed to standard error. With `-o`, the file is rewritten after each statement; without it, the whole file is printed when recording ends. Recording ends when you close the browser, or press Ctrl+C. The browser is downloaded, if it must be, as [Browser Setup](browser-setup.md) describes, and `--path` chooses the cache as for every command.
+A statement stays open while what you do next can still change it: typing more into the same field, the second click of a double click, or the navigation, popup, download, or dialog an action causes. In a terminal, the open statement is printed at once and rewritten in place as it changes; when standard output is redirected, each statement is printed once it is complete, since a printed line cannot be taken back. Each locator picked with the toolbar is printed to standard error. With `-o`, the file is rewritten whenever a statement starts, changes, or completes, so it always has the open statement too; without it, the whole file is printed when recording ends. Recording ends when you close the browser, or press Ctrl+C. The browser is downloaded, if it must be, as [Browser Setup](browser-setup.md) describes, and `--path` chooses the cache as for every command.
 
 A statement is printed once it is complete, which is when you do the next thing: typing into a field is one `FillAsync` with everything you typed, and the clicks of a double click are one `DblClickAsync`.
 
@@ -98,7 +98,7 @@ When none finds the element alone, a locator is looked for within the element's 
 
 ## Recording from Code
 
-`RecordCodeAsync` records a browser's actions as code, as the tool does. With the toolbar, the browser should have a window, since the toolbar needs a user; `CodeRecordingOptions.ShowToolbar = false` records without it, as a program driving the browser through Dramaturge would, though then no locator can be picked and no assertion added from the page. `OnStatement` reports each statement as it is complete, `OnLocatorPicked` each locator picked with the toolbar, and `Code` gives the whole file at any time. `StopAsync` completes the last statement, removes the toolbar, and returns the code.
+`RecordCodeAsync` records a browser's actions as code, as the tool does. With the toolbar, the browser should have a window, since the toolbar needs a user; `CodeRecordingOptions.ShowToolbar = false` records without it, as a program driving the browser through Dramaturge would, though then no locator can be picked and no assertion added from the page. `OnStatement` reports each statement as it is complete, `OnPendingStatement` the open statement each time it starts or changes, `OnLocatorPicked` each locator picked with the toolbar, and `Code` gives the whole file at any time, the open statement included as it is then. `StopAsync` completes the last statement, removes the toolbar, and returns the code.
 
 [!code-csharp[Record Code](../code/CodegenSamples.cs#RecordCode)]
 

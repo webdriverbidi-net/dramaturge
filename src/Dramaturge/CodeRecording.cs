@@ -36,6 +36,7 @@ public sealed class CodeRecording : IAsyncDisposable
     private readonly Dictionary<Frame, CancellationTokenSource> lookupSources = [];
     private readonly Dictionary<Page, string> libraryNavigations = [];
     private readonly ObservableEventInvocable<CodeStatementEventArgs> onStatement = new("automation.codeStatement");
+    private readonly ObservableEventInvocable<CodeStatementEventArgs> onPendingStatement = new("automation.codePendingStatement");
     private readonly ObservableEventInvocable<LocatorPickedEventArgs> onLocatorPicked = new("automation.locatorPicked");
     private readonly SemaphoreSlim stopLock = new(1, 1);
     private Task processing = Task.CompletedTask;
@@ -56,7 +57,8 @@ public sealed class CodeRecording : IAsyncDisposable
     }
 
     /// <summary>
-    /// Gets the whole file for the recording's target, built from the statements settled so far.
+    /// Gets the whole file for the recording's target, built from the statements settled so far and the one still
+    /// open, as it is now.
     /// </summary>
     public string Code
     {
@@ -65,7 +67,9 @@ public sealed class CodeRecording : IAsyncDisposable
             lock (this.lockObject)
             {
                 BrowserGroup group = this.browser.Group;
-                return CodeWriter.File(this.target, group.BrowserName, group.Options.TestIdAttribute, this.statements, this.namespaces);
+                return this.pending is RecordedStep open
+                    ? CodeWriter.File(this.target, group.BrowserName, group.Options.TestIdAttribute, [.. this.statements, open.Text], this.namespaces.Union(open.Namespaces))
+                    : CodeWriter.File(this.target, group.BrowserName, group.Options.TestIdAttribute, this.statements, this.namespaces);
             }
         }
     }
@@ -74,6 +78,13 @@ public sealed class CodeRecording : IAsyncDisposable
     /// Gets an event raised with each statement once it settles, in order.
     /// </summary>
     public ObservableEvent<CodeStatementEventArgs> OnStatement => this.onStatement;
+
+    /// <summary>
+    /// Gets an event raised with the statement still open, each time it starts or changes: a fill that grows as the
+    /// user types, or an action that a navigation, popup, download, or dialog then wraps or annotates. The same
+    /// statement is raised by <see cref="OnStatement"/> once it settles.
+    /// </summary>
+    public ObservableEvent<CodeStatementEventArgs> OnPendingStatement => this.onPendingStatement;
 
     /// <summary>
     /// Gets an event raised with each element the user picks with the toolbar's Pick locator.
@@ -400,6 +411,12 @@ public sealed class CodeRecording : IAsyncDisposable
             return;
         }
 
+        RecordedStep? before;
+        lock (this.lockObject)
+        {
+            before = this.pending;
+        }
+
         if (await this.DescribeFramesAsync(frame, lookups).ConfigureAwait(false) is not List<FrameStep> frames)
         {
             return;
@@ -442,11 +459,7 @@ public sealed class CodeRecording : IAsyncDisposable
             }
         }
 
-        foreach (RecordedStep step in settled)
-        {
-            await this.SettleAsync(step).ConfigureAwait(false);
-        }
-
+        await this.PublishAsync(settled, before).ConfigureAwait(false);
         if (picked is not null)
         {
             await this.onLocatorPicked.InvokeNotifyObserversAsync(picked).ConfigureAwait(false);
@@ -664,14 +677,33 @@ public sealed class CodeRecording : IAsyncDisposable
     private async Task ChangeAsync(Action<List<RecordedStep>> change)
     {
         List<RecordedStep> settled = [];
+        RecordedStep? before;
         lock (this.lockObject)
         {
+            before = this.pending;
             change(settled);
         }
 
+        await this.PublishAsync(settled, before).ConfigureAwait(false);
+    }
+
+    // Settles the steps, then reports the open statement if it started or changed since it was the one before.
+    private async Task PublishAsync(List<RecordedStep> settled, RecordedStep? before)
+    {
         foreach (RecordedStep step in settled)
         {
             await this.SettleAsync(step).ConfigureAwait(false);
+        }
+
+        RecordedStep? after;
+        lock (this.lockObject)
+        {
+            after = this.pending;
+        }
+
+        if (after is not null && (before is null || before.Number != after.Number || before.Text != after.Text))
+        {
+            await this.onPendingStatement.InvokeNotifyObserversAsync(new CodeStatementEventArgs(after.Text)).ConfigureAwait(false);
         }
     }
 
