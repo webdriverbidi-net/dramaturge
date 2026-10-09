@@ -111,6 +111,13 @@
       pressed = element instanceof HTMLInputElement ? { element, checked: element.checked } : null;
     };
     document.addEventListener('pointerdown', onPointerDown, true);
+    // A navigation the document starts is reported, so that one without a report is known to be the browser's own.
+    const onNavigate = (event) => {
+      if (!event.destination.sameDocument) {
+        send([JSON.stringify({ kind: 'navigate', url: event.destination.url }), null]);
+      }
+    };
+    navigation.addEventListener('navigate', onNavigate);
     const picker = new Acquiescence.ElementPicker((element) => onPick(element), { resolve: (element) => describer.getActionTarget(element), ignore });
     const onPick = (element) => {
       if (current === 'assertText') {
@@ -162,11 +169,18 @@
     apply(mode);
     return {
       apply,
+      // An action the library took, whose events are not the user's, is recorded as one of the user's would be.
+      report: (element, details) => {
+        if (current === 'record') {
+          describe(element, details);
+        }
+      },
       stop: () => {
         recorder.stop();
         picker.stop();
         toolbar?.remove();
         document.removeEventListener('pointerdown', onPointerDown, true);
+        navigation.removeEventListener('navigate', onNavigate);
       },
     };
   };
@@ -179,6 +193,16 @@
 
     setMode(mode) {
       session?.apply(mode);
+    },
+
+    // Options the library selected, by the values now selected.
+    reportSelect(element) {
+      session?.report(element, { kind: 'select', values: Array.from(element.selectedOptions, (option) => option.value) });
+    },
+
+    // Files the library set, by their paths.
+    reportFiles(element, files) {
+      session?.report(element, { kind: 'setInputFiles', files });
     },
 
     // Each frame element's window, then its description as a message has it.

@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Recording navigation</title>
+  </head>
+  <body style="padding-top: 80px">
+    <button id="location" onclick="window.location = 'second.html'">Location</button>
+    <button id="assign" onclick="location.assign('second.html')">Assign</button>
+    <button id="replace" onclick="location.replace('second.html')">Replace</button>
+    <button id="later" onclick="setTimeout(() => { window.location = 'second.html'; }, 100)">Later</button>
+  </body>
+</html>

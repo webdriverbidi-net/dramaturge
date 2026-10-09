@@ -8,12 +8,14 @@ namespace Dramaturge;
 using System.Text.Json.Nodes;
 using Dramaturge.TestUtilities;
 using WebDriverBiDi;
+using WebDriverBiDi.BrowsingContext;
 using static Dramaturge.TestUtilities.RecorderMessages;
 
 // No locator candidate resolves on the fake, so each element is located by its CSS path.
 public class CodeRecordingEffectsTests
 {
     private const string NavigationStarted = "browsingContext.navigationStarted";
+    private const string NavigationCommitted = "browsingContext.navigationCommitted";
 
     [Fact]
     public async Task NavigationTheActionCausedIsWaitedFor()
@@ -24,11 +26,99 @@ public class CodeRecordingEffectsTests
         string channel = await GetChannelAsync(session);
 
         await SendAsync(driver, session, channel, page.Id, Click("#next"));
-        await RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationStarted, page.Id, "https://example.com/next"));
-        await RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationStarted, page.Id, "https://example.com/again"));
+        await StartAsync(driver, session, page.Id, "https://example.com/next", "navigation-next");
+        await SendAsync(driver, session, channel, page.Id, Navigate("https://example.com/next"));
+        await CommitAsync(driver, session, page.Id, "https://example.com/next", "navigation-next");
+        await SendAsync(driver, session, channel, page.Id, Navigate("https://example.com/again"));
+        await StartAsync(driver, session, page.Id, "https://example.com/again", "navigation-again");
+        await CommitAsync(driver, session, page.Id, "https://example.com/again", "navigation-again");
         string code = await recording.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(["await page.RunAndWaitForNavigationAsync(() => page.Locate(new CssLocator(\"#next\")).ClickAsync());"], Statements(code));
+    }
+
+    [Fact]
+    public async Task NavigationReportedBeforeItStartsIsTheActionsEffect()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+
+        await SendAsync(driver, session, channel, page.Id, Click("#go"));
+        await SendAsync(driver, session, channel, page.Id, Navigate("https://example.com/next"));
+        await StartAsync(driver, session, page.Id, "https://example.com/next", "navigation-next");
+        await CommitAsync(driver, session, page.Id, "https://example.com/next", "navigation-next");
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(["await page.RunAndWaitForNavigationAsync(() => page.Locate(new CssLocator(\"#go\")).ClickAsync());"], Statements(code));
+    }
+
+    // Chrome sometimes loses a document's report, so the action pending as a navigation starts is credited with it
+    // without one; an action causes one navigation at most.
+    [Fact]
+    public async Task NavigationWithoutAReportIsThePendingActionsOnceAndThenTheUsers()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        FakeContext frame = await session.CreateFrameAsync(page.Id);
+        await WaitUntilAsync(() => page.Frames.Count == 2);
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+
+        await SendAsync(driver, session, channel, page.Id, Click("#go"));
+        await SendAsync(driver, session, channel, frame.Id, Navigate("https://example.com/next"));
+        await SendAsync(driver, session, channel, page.Id, Navigate("https://example.com/elsewhere"));
+        await SendAsync(driver, session, channel, page.Id, Navigate("https://example.com/other"));
+        await StartAsync(driver, session, page.Id, "https://example.com/next", "navigation-next");
+        await CommitAsync(driver, session, page.Id, "https://example.com/next", "navigation-next");
+        await StartAsync(driver, session, page.Id, "https://example.com/typed", "navigation-typed");
+        await CommitAsync(driver, session, page.Id, "https://example.com/typed", "navigation-typed");
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                "await page.RunAndWaitForNavigationAsync(() => page.Locate(new CssLocator(\"#go\")).ClickAsync());",
+                "await page.NavigateAsync(\"https://example.com/typed\");",
+            ],
+            Statements(code));
+    }
+
+    [Fact]
+    public async Task NavigationThePageStartedWithoutThePendingActionIsNotRecorded()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+
+        await SendAsync(driver, session, channel, page.Id, Navigate("https://example.com/redirect"));
+        await StartAsync(driver, session, page.Id, "https://example.com/redirect", "navigation-redirect");
+        await CommitAsync(driver, session, page.Id, "https://example.com/redirect", "navigation-redirect");
+        await SendAsync(driver, session, channel, page.Id, Click("#first"));
+        await StartAsync(driver, session, page.Id, "https://example.com/superseded", "navigation-superseded");
+        await SendAsync(driver, session, channel, page.Id, Click("#second"));
+        await StartAsync(driver, session, page.Id, "https://example.com/timer", "navigation-timer");
+        await SendAsync(driver, session, channel, page.Id, Click("#third"));
+        await SendAsync(driver, session, channel, page.Id, Navigate("https://example.com/timer"));
+        await CommitAsync(driver, session, page.Id, "https://example.com/superseded", "navigation-superseded");
+        await CommitAsync(driver, session, page.Id, "https://example.com/timer", "navigation-timer");
+
+        // A key the code cannot press is no action for a navigation to wait for.
+        await SendAsync(driver, session, channel, page.Id, Action("press", "#notes", new JsonField("key", "ContextMenu"), new JsonField("modifiers", new JsonArray())));
+        await StartAsync(driver, session, page.Id, "https://example.com/menu", "navigation-menu");
+        await SendAsync(driver, session, channel, page.Id, Navigate("https://example.com/menu"));
+        await CommitAsync(driver, session, page.Id, "https://example.com/menu", "navigation-menu");
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                "await page.Locate(new CssLocator(\"#first\")).ClickAsync();",
+                "await page.Locate(new CssLocator(\"#second\")).ClickAsync();",
+                "await page.Locate(new CssLocator(\"#third\")).ClickAsync();",
+                "// The key \"ContextMenu\" was pressed, which is neither a member of Keys nor a character.",
+            ],
+            Statements(code));
     }
 
     [Fact]
@@ -44,13 +134,19 @@ public class CodeRecordingEffectsTests
         CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
         string channel = await GetChannelAsync(session);
 
-        await RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationStarted, page.Id, "https://example.com/"));
-        await RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationStarted, page.Id, "about:blank"));
-        await RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationStarted, frame.Id, "https://example.com/frame"));
-        await RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationStarted, otherPage.Id, "https://example.com/other"));
-        await RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationStarted, "unknown-context", "https://example.com/unknown"));
+        await StartAsync(driver, session, page.Id, "https://example.com/", "navigation-page");
+        await CommitAsync(driver, session, page.Id, "https://example.com/", "navigation-page");
+        await StartAsync(driver, session, page.Id, "about:blank", "navigation-blank");
+        await CommitAsync(driver, session, page.Id, "about:blank", "navigation-blank");
+        await StartAsync(driver, session, frame.Id, "https://example.com/frame", "navigation-frame");
+        await CommitAsync(driver, session, frame.Id, "https://example.com/frame", "navigation-frame");
+        await StartAsync(driver, session, otherPage.Id, "https://example.com/other", "navigation-other");
+        await CommitAsync(driver, session, otherPage.Id, "https://example.com/other", "navigation-other");
+        await StartAsync(driver, session, "unknown-context", "https://example.com/unknown", "navigation-unknown");
+        await CommitAsync(driver, session, "unknown-context", "https://example.com/unknown", "navigation-unknown");
         await SendAsync(driver, session, channel, page.Id, Fill("#search", "a"));
-        await RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationStarted, second.Id, "https://example.com/second"));
+        await StartAsync(driver, session, second.Id, "https://example.com/second", "navigation-second");
+        await CommitAsync(driver, session, second.Id, "https://example.com/second", "navigation-second");
         string code = await recording.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(
@@ -59,6 +155,135 @@ public class CodeRecordingEffectsTests
                 "await page.Locate(new CssLocator(\"#search\")).FillAsync(\"a\");",
                 "Page page1 = await page.Browser.NewPageAsync();",
                 "await page1.NavigateAsync(\"https://example.com/second\");",
+            ],
+            Statements(code));
+    }
+
+    // The lookups may take as long as a navigation, so only their cancelling as it commits settles the action in time.
+    [Fact]
+    public async Task NavigationCancelsTheLookupsInTheDocumentsItReplaces()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync(TimeSpan.FromMinutes(10));
+        await using BiDiDriver ownedDriver = driver;
+        FakeContext frame = await session.CreateFrameAsync(page.Id);
+        await WaitUntilAsync(() => page.Frames.Count == 2);
+        session.RemoteEnd.NeverAnswer("browsingContext.locateNodes");
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+        TaskCompletionSource settled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        recording.OnStatement.AddObserver(_ => settled.TrySetResult());
+        JsonObject save = Click("#save");
+        save["target"]!["testId"] = "save";
+        save["target"]!["role"] = "button";
+        save["target"]!["name"] = "Save";
+        JsonObject fill = Fill("#name", "Ada");
+        fill["target"]!["role"] = "textbox";
+        fill["target"]!["name"] = "Name";
+
+        await SendAsync(driver, session, channel, page.Id, save, "node-save");
+        await session.RemoteEnd.WaitForCommandAsync("browsingContext.locateNodes");
+        await SendAsync(driver, session, channel, frame.Id, Click("#inner"));
+        await StartAsync(driver, session, frame.Id, "https://example.com/frame", "navigation-frame");
+        await CommitAsync(driver, session, frame.Id, "https://example.com/frame", "navigation-frame");
+        await StartAsync(driver, session, page.Id, "https://example.com/next", "navigation-next");
+        await SendAsync(driver, session, channel, page.Id, Navigate("https://example.com/next"));
+        await CommitAsync(driver, session, page.Id, "https://example.com/next", "navigation-next");
+        session.RemoteEnd.AnswerWith("browsingContext.locateNodes", parameters => ProtocolJson.Nodes((string?)parameters["locator"]!["type"] == "accessibility" ? ["node-name"] : []));
+        await SendAsync(driver, session, channel, page.Id, fill, "node-name");
+        await settled.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                "await page.RunAndWaitForNavigationAsync(() => page.GetByTestId(\"save\").ClickAsync());",
+                "await page.GetByRole(\"textbox\", \"Name\").FillAsync(\"Ada\");",
+            ],
+            Statements(code));
+    }
+
+    // A navigation that starts while the library navigates is the library's, so the pending click is not credited with it.
+    [Fact]
+    public async Task LibraryNavigationsAreRecordedAsTheirCalls()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        FakeContext child = await session.CreateFrameAsync(page.Id);
+        await WaitUntilAsync(() => page.Frames.Count == 2);
+        int[] traversals = [0];
+        session.RemoteEnd.AnswerWith("browsingContext.traverseHistory", parameters => new FakeResponse(new JsonObject(), [new FakeEvent("browsingContext.historyUpdated", new JsonObject() { ["context"] = (string)parameters["context"]!, ["timestamp"] = 1790000000000, ["url"] = $"https://example.com/{Interlocked.Increment(ref traversals[0])}", ["userContext"] = "default" })]));
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+
+        await SendAsync(driver, session, channel, page.Id, Click("#stay"));
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.RemoteEnd.HoldAnswers("browsingContext.navigate", release.Task);
+        Task<string> navigating = page.NavigateAsync("https://example.com/next", ReadinessState.None, cancellationToken: TestContext.Current.CancellationToken);
+        await session.RemoteEnd.WaitForCommandAsync("browsingContext.navigate");
+        await StartAsync(driver, session, page.Id, "https://example.com/next", "navigation-next");
+        await CommitAsync(driver, session, page.Id, "https://example.com/next", "navigation-next");
+        release.SetResult();
+        await navigating;
+        session.RemoteEnd.StopHolding("browsingContext.navigate");
+        await page.ReloadAsync(ReadinessState.None, cancellationToken: TestContext.Current.CancellationToken);
+        await page.GoBackAsync(ReadinessState.None, cancellationToken: TestContext.Current.CancellationToken);
+        await page.GoForwardAsync(ReadinessState.None, cancellationToken: TestContext.Current.CancellationToken);
+        await page.Frames.Single(frame => frame.Id == child.Id).NavigateAsync("https://example.com/child", ReadinessState.None, cancellationToken: TestContext.Current.CancellationToken);
+        session.RemoteEnd.FailWith("browsingContext.navigate", "unknown error", "net::ERR_ABORTED");
+        await Assert.ThrowsAsync<WebDriverBiDiCommandException>(() => page.NavigateAsync("https://example.com/aborted", ReadinessState.None, cancellationToken: TestContext.Current.CancellationToken));
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                "await page.Locate(new CssLocator(\"#stay\")).ClickAsync();",
+                "await page.NavigateAsync(\"https://example.com/next\");",
+                "await page.ReloadAsync();",
+                "await page.GoBackAsync();",
+                "await page.GoForwardAsync();",
+            ],
+            Statements(code));
+    }
+
+    [Fact]
+    public async Task LibrarySelectionAndFilesAreReportedToTheRecorder()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await GetChannelAsync(session);
+        session.RemoteEnd.AnswerWith("browsingContext.locateNodes", _ => ProtocolJson.Nodes(["node-control"]));
+        JsonObject selected = new() { ["type"] = "object", ["value"] = new JsonArray(new JsonArray("status", new JsonObject() { ["type"] = "string", ["value"] = "selected" }), new JsonArray("values", new JsonObject() { ["type"] = "array", ["value"] = new JsonArray(new JsonObject() { ["type"] = "string", ["value"] = "g" }) })) };
+        session.RemoteEnd.AnswerWith("script.callFunction", parameters => ProtocolJson.Success(((string)parameters["functionDeclaration"]!).Contains("selectOptions") ? (JsonObject)selected.DeepClone() : new JsonObject() { ["type"] = "undefined" }));
+
+        await page.Locate(new CssLocator("#color")).SelectOptionAsync([SelectOption.ByValue("g")], new ActionOptions() { Force = true }, TestContext.Current.CancellationToken);
+        await page.Locate(new CssLocator("#file")).SetInputFilesAsync(["/files/upload.txt"], cancellationToken: TestContext.Current.CancellationToken);
+        await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        JsonObject[] reports = [.. session.RemoteEnd.CommandsFor("script.callFunction").Select(command => command["params"]!.AsObject()).Where(parameters => ((string)parameters["functionDeclaration"]!).Contains("recorder.report"))];
+        Assert.Equal(2, reports.Length);
+        Assert.Contains("recorder.reportSelect(element)", (string)reports[0]["functionDeclaration"]!);
+        Assert.Equal("node-control", (string?)reports[0]["arguments"]![0]!["sharedId"]);
+        Assert.Contains("recorder.reportFiles(element, files)", (string)reports[1]["functionDeclaration"]!);
+        Assert.Equal("/files/upload.txt", (string?)reports[1]["arguments"]![1]!["value"]![0]!["value"]);
+    }
+
+    // The browser's own change event names the files; the library's report of the same input, with their paths, replaces it.
+    [Fact]
+    public async Task FilesSetAgainOnOneInputReplaceTheEarlierStatement()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+
+        await SendAsync(driver, session, channel, page.Id, Action("setInputFiles", "#file", new JsonField("files", new JsonArray("upload.txt"))));
+        await SendAsync(driver, session, channel, page.Id, Action("setInputFiles", "#file", new JsonField("files", new JsonArray("/files/upload.txt"))));
+        await SendAsync(driver, session, channel, page.Id, Action("setInputFiles", "#other", new JsonField("files", new JsonArray("/files/other.txt"))));
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                "await page.Locate(new CssLocator(\"#file\")).SetInputFilesAsync([\"/files/upload.txt\"]);",
+                "await page.Locate(new CssLocator(\"#other\")).SetInputFilesAsync([\"/files/other.txt\"]);",
             ],
             Statements(code));
     }
@@ -73,11 +298,15 @@ public class CodeRecordingEffectsTests
 
         await SendAsync(driver, session, channel, page.Id, Click("#open"));
         Page popup = await OpenPopupAsync(session, page);
-        await RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationStarted, popup.Id, "https://example.com/popup"));
-        await RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationStarted, page.Id, "https://example.com/opener"));
+        await StartAsync(driver, session, popup.Id, "https://example.com/popup", "navigation-popup");
+        await CommitAsync(driver, session, popup.Id, "https://example.com/popup", "navigation-popup");
+        await StartAsync(driver, session, page.Id, "https://example.com/opener", "navigation-opener");
+        await SendAsync(driver, session, channel, page.Id, Navigate("https://example.com/opener"));
+        await CommitAsync(driver, session, page.Id, "https://example.com/opener", "navigation-opener");
         await SendAsync(driver, session, channel, popup.Id, Click("#inside"));
         await SendAsync(driver, session, channel, popup.Id, new JsonObject() { ["kind"] = "mode", ["mode"] = "record" });
-        await RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationStarted, popup.Id, "https://example.com/typed"));
+        await StartAsync(driver, session, popup.Id, "https://example.com/typed", "navigation-typed");
+        await CommitAsync(driver, session, popup.Id, "https://example.com/typed", "navigation-typed");
         Page unopened = await OpenPopupAsync(session, page);
         await SendAsync(driver, session, channel, unopened.Id, Click("#elsewhere"));
         await popup.CloseAsync(cancellationToken: TestContext.Current.CancellationToken);
@@ -109,10 +338,20 @@ public class CodeRecordingEffectsTests
         await RaiseAsync(driver, session.RemoteEnd.RaiseEventAsync("browsingContext.downloadWillBegin", WillBegin(page.Id)));
         await RaiseAsync(driver, session.RemoteEnd.RaiseEventAsync("browsingContext.downloadWillBegin", WillBegin(page.Id)));
         await SendAsync(driver, session, channel, page.Id, Click("#export"));
-        await RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationStarted, page.Id, "https://example.com/export"));
+        await StartAsync(driver, session, page.Id, "https://example.com/export", "navigation-export");
+        await SendAsync(driver, session, channel, page.Id, Navigate("https://example.com/export"));
+        await CommitAsync(driver, session, page.Id, "https://example.com/export", "navigation-export");
         await RaiseAsync(driver, session.RemoteEnd.RaiseEventAsync("browsingContext.downloadWillBegin", WillBegin(page.Id)));
         await SendAsync(driver, session, channel, page.Id, Click("#archive"));
         await RaiseAsync(driver, session.RemoteEnd.RaiseEventAsync("browsingContext.downloadWillBegin", WillBegin(page.Id)));
+
+        // A navigation that becomes a download is the download, and never commits.
+        await SendAsync(driver, session, channel, page.Id, Click("#file"));
+        await SendAsync(driver, session, channel, page.Id, Navigate("https://example.com/file"));
+        await StartAsync(driver, session, page.Id, "https://example.com/file", "navigation-file");
+        await RaiseAsync(driver, session.RemoteEnd.RaiseEventAsync("browsingContext.downloadWillBegin", WillBegin(page.Id, "navigation-other")));
+        await RaiseAsync(driver, session.RemoteEnd.RaiseEventAsync("browsingContext.downloadWillBegin", WillBegin(page.Id, "navigation-file")));
+        await CommitAsync(driver, session, page.Id, "https://example.com/file", "navigation-file");
         string code = await recording.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(
@@ -120,6 +359,7 @@ public class CodeRecordingEffectsTests
                 "Download download = await page.RunAndWaitForDownloadAsync(() => page.Locate(new CssLocator(\"#report\")).ClickAsync());",
                 "await page.RunAndWaitForNavigationAsync(() => page.Locate(new CssLocator(\"#export\")).ClickAsync());",
                 "Download download1 = await page.RunAndWaitForDownloadAsync(() => page.Locate(new CssLocator(\"#archive\")).ClickAsync());",
+                "Download download2 = await page.RunAndWaitForDownloadAsync(() => page.Locate(new CssLocator(\"#file\")).ClickAsync());",
             ],
             Statements(code));
     }
@@ -169,7 +409,13 @@ public class CodeRecordingEffectsTests
 
         await SendAsync(driver, session, channel, page.Id, Fill("#search", "a"));
         await SendAsync(driver, session, channel, inner.Id, Click("#go"));
-        await RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationStarted, page.Id, "https://example.com/next"));
+
+        // The navigation commits once the click's frames are described, which it would otherwise cancel.
+        await WaitUntilAsync(() => session.RemoteEnd.CommandsFor("script.callFunction").Count(command => ((string)command["params"]!["functionDeclaration"]!).Contains("describeFrames")) == 2);
+        await NetworkEvents.FlushAsync(driver);
+        await StartAsync(driver, session, page.Id, "https://example.com/next", "navigation-next");
+        await SendAsync(driver, session, channel, page.Id, Navigate("https://example.com/next"));
+        await CommitAsync(driver, session, page.Id, "https://example.com/next", "navigation-next");
         await SendAsync(driver, session, channel, outer.Id, Action("assertVisible", "#title"));
         await SendAsync(driver, session, channel, hidden.Id, Click("#hidden"));
         string code = await recording.StopAsync(TestContext.Current.CancellationToken);
@@ -203,10 +449,10 @@ public class CodeRecordingEffectsTests
         Assert.Empty(Statements(code));
     }
 
-    private static async Task<OpenedPage> OpenPageAsync()
+    private static async Task<OpenedPage> OpenPageAsync(TimeSpan? navigationTimeout = null)
     {
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
-        BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { NavigationTimeout = TimeSpan.FromSeconds(5) }, TestContext.Current.CancellationToken);
+        BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { NavigationTimeout = navigationTimeout ?? TimeSpan.FromSeconds(5) }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
         AnswerFrames(session, []);
         return new OpenedPage(driver, session, page);
@@ -272,9 +518,21 @@ public class CodeRecordingEffectsTests
         await NetworkEvents.FlushAsync(driver);
     }
 
-    private static JsonObject WillBegin(string contextId)
+    private static Task StartAsync(BiDiDriver driver, FakeSession session, string contextId, string url, string navigationId)
     {
-        return new JsonObject() { ["context"] = contextId, ["navigation"] = null, ["timestamp"] = 1790000000000, ["url"] = "https://example.com/report.txt", ["suggestedFilename"] = "report.txt", ["download"] = $"download-{Guid.NewGuid():N}" };
+        return RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationStarted, contextId, url, navigationId));
+    }
+
+    private static Task CommitAsync(BiDiDriver driver, FakeSession session, string contextId, string url, string navigationId)
+    {
+        return RaiseAsync(driver, session.RaiseNavigationEventAsync(NavigationCommitted, contextId, url, navigationId));
+    }
+
+    private static JsonObject Navigate(string url) => new() { ["kind"] = "navigate", ["url"] = url };
+
+    private static JsonObject WillBegin(string contextId, string? navigationId = null)
+    {
+        return new JsonObject() { ["context"] = contextId, ["navigation"] = navigationId, ["timestamp"] = 1790000000000, ["url"] = "https://example.com/report.txt", ["suggestedFilename"] = "report.txt", ["download"] = $"download-{Guid.NewGuid():N}" };
     }
 
     private static JsonObject Prompt(string contextId, string type, string message)

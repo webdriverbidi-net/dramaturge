@@ -30,6 +30,10 @@ public sealed class CodeRecording : IAsyncDisposable
     private readonly Dictionary<Page, string> pageVariables = [];
     private readonly Dictionary<Frame, string> frameVariables = [];
     private readonly HashSet<Page> actedPages = [];
+    private readonly Dictionary<Page, StartedNavigation> navigations = [];
+    private readonly Dictionary<Page, HashSet<string>> reportedNavigations = [];
+    private readonly Dictionary<Frame, CancellationTokenSource> lookupSources = [];
+    private readonly Dictionary<Page, string> libraryNavigations = [];
     private readonly ObservableEventInvocable<CodeStatementEventArgs> onStatement = new("automation.codeStatement");
     private readonly ObservableEventInvocable<LocatorPickedEventArgs> onLocatorPicked = new("automation.locatorPicked");
     private readonly SemaphoreSlim stopLock = new(1, 1);
@@ -39,6 +43,7 @@ public sealed class CodeRecording : IAsyncDisposable
     private RememberedLocator? lastLocator;
     private string mode = "record";
     private int downloadCount;
+    private int stepCount;
     private bool isStopped;
 
     private CodeRecording(Browser browser, CodeTarget target)
@@ -165,8 +170,10 @@ public sealed class CodeRecording : IAsyncDisposable
         {
             recording.observers.Add(driver.Script.OnMessage.AddObserver(recording.OnMessage));
             recording.observers.Add(driver.BrowsingContext.OnDomContentLoaded.AddObserver(e => recording.OnDocumentLoaded(e.BrowsingContextId)));
-            recording.observers.Add(driver.BrowsingContext.OnNavigationStarted.AddObserver(e => recording.OnPageEvent(e.BrowsingContextId, frame => frame == frame.Page.MainFrame && e.Url != "about:blank", page => recording.OnNavigationAsync(page, e.Url))));
-            recording.observers.Add(driver.BrowsingContext.OnDownloadWillBegin.AddObserver(e => recording.OnPageEvent(e.BrowsingContextId, _ => true, recording.OnDownloadAsync)));
+            recording.observers.Add(driver.BrowsingContext.OnNavigationStarted.AddObserver(e => recording.OnPageEvent(e.BrowsingContextId, frame => frame == frame.Page.MainFrame && e.Url != "about:blank", page => recording.OnNavigationStartedAsync(page, e.NavigationId, e.Url))));
+            recording.observers.Add(driver.BrowsingContext.OnNavigationCommitted.AddObserver(e => recording.CancelLookups(e.BrowsingContextId)));
+            recording.observers.Add(driver.BrowsingContext.OnNavigationCommitted.AddObserver(e => recording.OnPageEvent(e.BrowsingContextId, frame => frame == frame.Page.MainFrame, page => recording.OnNavigationCommittedAsync(page, e.NavigationId))));
+            recording.observers.Add(driver.BrowsingContext.OnDownloadWillBegin.AddObserver(e => recording.OnPageEvent(e.BrowsingContextId, _ => true, page => recording.OnDownloadAsync(page, e.NavigationId))));
             recording.observers.Add(driver.BrowsingContext.OnUserPromptOpened.AddObserver(e => recording.OnPageEvent(e.BrowsingContextId, _ => true, page => recording.OnDialogAsync(page, e.PromptType, e.Message))));
             recording.observers.Add(browser.OnPageCreated.AddObserver(e => recording.Enqueue(() => recording.OnPopupAsync(e.Page))));
             recording.observers.Add(browser.OnPageClosed.AddObserver(e => recording.Enqueue(() => recording.OnPageClosedAsync(e.Page))));
@@ -192,6 +199,33 @@ public sealed class CodeRecording : IAsyncDisposable
 
         await Task.WhenAll(browser.Pages.SelectMany(page => page.Frames).Select(frame => recording.Install(frame.Id))).ConfigureAwait(false);
         return recording;
+    }
+
+    /// <summary>
+    /// Runs the library's own navigation of a frame, which, in the main frame of a browser recording code, is
+    /// recorded as its call, and none of the navigations it starts is an action's.
+    /// </summary>
+    /// <typeparam name="T">The type of the navigation's result.</typeparam>
+    /// <param name="frame">The frame.</param>
+    /// <param name="call">The call, after the page's variable, such as <c>ReloadAsync()</c>.</param>
+    /// <param name="navigate">The navigation.</param>
+    /// <returns>The navigation's result.</returns>
+    internal static Task<T> RunNavigationAsync<T>(Frame frame, string call, Func<Task<T>> navigate)
+    {
+        return frame == frame.Page.MainFrame && frame.Page.Browser.ActiveCodeRecording is CodeRecording recording ? recording.RecordNavigationAsync(frame.Page, call, navigate) : navigate();
+    }
+
+    private static bool IsWithin(Frame frame, Frame ancestor)
+    {
+        for (Frame? current = frame; current is not null; current = current.ParentFrame)
+        {
+            if (current == ancestor)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string[] LocatorNamespaces(string locator) => locator.Contains("new CssLocator(") ? [CodeWriter.BrowsingContextNamespace] : [];
@@ -240,7 +274,7 @@ public sealed class CodeRecording : IAsyncDisposable
             case "select":
                 return Action($"SelectOptionAsync({CodeWriter.Collection(Strings(action.GetProperty("values")).Select(value => $"SelectOption.ByValue({CodeWriter.Literal(value)})"))})", locatorNamespaces);
             case "setInputFiles":
-                return Action($"SetInputFilesAsync({CodeWriter.Collection(Strings(action.GetProperty("files")).Select(CodeWriter.Literal))})", locatorNamespaces);
+                return Action($"SetInputFilesAsync({CodeWriter.Collection(Strings(action.GetProperty("files")).Select(CodeWriter.Literal))})", locatorNamespaces, $"files {locator}");
             case "assertVisible":
                 return Assertion("ToBeVisibleAsync()");
             case "assertText":
@@ -297,7 +331,8 @@ public sealed class CodeRecording : IAsyncDisposable
         Frame? frame = e.Source.BrowsingContextId is string contextId ? this.browser.Group.FindFrame(contextId) : null;
         if (e.ChannelId == this.channelId && frame?.Page.Browser == this.browser)
         {
-            this.Enqueue(() => this.HandleAsync(frame, e.Data.As<CollectionRemoteValue>().Value!));
+            CancellationToken lookups = this.GetLookupToken(frame);
+            this.Enqueue(() => this.HandleAsync(frame, e.Data.As<CollectionRemoteValue>().Value!, lookups));
         }
     }
 
@@ -322,7 +357,7 @@ public sealed class CodeRecording : IAsyncDisposable
         }
     }
 
-    private async Task HandleAsync(Frame frame, RemoteValueList data)
+    private async Task HandleAsync(Frame frame, RemoteValueList data, CancellationToken lookups)
     {
         using JsonDocument document = JsonDocument.Parse(data[0].As<StringRemoteValue>().Value);
         JsonElement message = document.RootElement;
@@ -333,12 +368,18 @@ public sealed class CodeRecording : IAsyncDisposable
             return;
         }
 
-        if (await this.DescribeFramesAsync(frame).ConfigureAwait(false) is not List<FrameStep> frames)
+        if (kind == "navigate")
+        {
+            this.OnNavigationReported(frame, message.GetProperty("url").GetString()!);
+            return;
+        }
+
+        if (await this.DescribeFramesAsync(frame, lookups).ConfigureAwait(false) is not List<FrameStep> frames)
         {
             return;
         }
 
-        GeneratedLocator found = await this.FindLocatorAsync(frame, message, [.. data.Skip(1).Select(element => element.As<NodeRemoteValue>())]).ConfigureAwait(false);
+        GeneratedLocator found = await this.FindLocatorAsync(frame, message, [.. data.Skip(1).Select(element => element.As<NodeRemoteValue>())], lookups).ConfigureAwait(false);
         List<RecordedStep> settled = [];
         LocatorPickedEventArgs? picked = null;
         lock (this.lockObject)
@@ -355,7 +396,7 @@ public sealed class CodeRecording : IAsyncDisposable
                 default:
                     if (CreateStep(message, locator) is RecordedStep created)
                     {
-                        RecordedStep step = created with { Page = frame.Page, PageVariable = pageVariable };
+                        RecordedStep step = created with { Page = frame.Page, PageVariable = pageVariable, Number = ++this.stepCount };
                         if (step.SettlesAtOnce || this.pending is null || !step.Replaces(this.pending))
                         {
                             settled.AddRange(this.TakePending());
@@ -386,20 +427,130 @@ public sealed class CodeRecording : IAsyncDisposable
         }
     }
 
-    // A navigation the pending action on the page caused waits for it; one in a popup the action opened is the popup's
-    // own; any other is the user's, as when typing an address.
-    private Task OnNavigationAsync(Page page, string url)
+    // The navigation's window opens before its command is sent and closes once it completes, in the order of the
+    // events, so each navigation that starts in it is the library's; the call is recorded as the window closes, as a
+    // navigation within the document starts none.
+    private async Task<T> RecordNavigationAsync<T>(Page page, string call, Func<Task<T>> navigate)
+    {
+        this.Enqueue(() => this.ChangeAsync(_ => this.libraryNavigations[page] = call));
+        bool succeeded = false;
+        try
+        {
+            T result = await navigate().ConfigureAwait(false);
+            succeeded = true;
+            return result;
+        }
+        finally
+        {
+            this.Enqueue(() => this.ChangeAsync(settled =>
+            {
+                this.libraryNavigations.Remove(page);
+                if (succeeded)
+                {
+                    settled.AddRange(this.TakePending());
+                    settled.Add(new($"await {this.GetPageVariable(page, settled)}.{call};", []));
+                }
+            }));
+        }
+    }
+
+    // The token that cancels an action's lookups in its frame's document, taken as its message arrives, which is
+    // before any navigation replacing the document that sent it commits.
+    private CancellationToken GetLookupToken(Frame frame)
+    {
+        lock (this.lockObject)
+        {
+            if (!this.lookupSources.TryGetValue(frame, out CancellationTokenSource? source))
+            {
+                source = new CancellationTokenSource();
+                this.lookupSources[frame] = source;
+            }
+
+            return source.Token;
+        }
+    }
+
+    // A navigation that commits cancels the lookups in the documents it replaced, its frame's and those of the frames
+    // within it, which would otherwise look in the new document, or, in Chrome, may never be answered.
+    private void CancelLookups(string contextId)
+    {
+        if (this.browser.Group.FindFrame(contextId) is not Frame navigated)
+        {
+            return;
+        }
+
+        List<CancellationTokenSource> cancelled = [];
+        lock (this.lockObject)
+        {
+            foreach (Frame frame in this.lookupSources.Keys.Where(frame => IsWithin(frame, navigated)).ToList())
+            {
+                cancelled.Add(this.lookupSources[frame]);
+                this.lookupSources.Remove(frame);
+            }
+        }
+
+        cancelled.ForEach(source => source.Cancel());
+    }
+
+    // A document reports its navigation before the navigation commits, though not always before it starts.
+    private void OnNavigationReported(Frame frame, string url)
+    {
+        lock (this.lockObject)
+        {
+            if (frame == frame.Page.MainFrame)
+            {
+                if (!this.reportedNavigations.TryGetValue(frame.Page, out HashSet<string>? urls))
+                {
+                    urls = [];
+                    this.reportedNavigations[frame.Page] = urls;
+                }
+
+                urls.Add(url);
+            }
+        }
+    }
+
+    // A page's latest navigation replaces any earlier one that has not committed.
+    private Task OnNavigationStartedAsync(Page page, string? navigationId, string url)
+    {
+        lock (this.lockObject)
+        {
+            int? actionNumber = this.pending is { Call: not null } action && action.Page == page ? action.Number : null;
+            this.navigations[page] = new StartedNavigation(navigationId, url, actionNumber, this.libraryNavigations.ContainsKey(page));
+        }
+
+        return Task.CompletedTask;
+    }
+
+    // A navigation is the effect of the action pending when it started, if that action is still pending and has caused
+    // none yet. Otherwise its document's report, which Chrome sometimes loses, tells the page's own navigation, which
+    // replay repeats, from the user's, as when typing an address; a popup's first, before it is acted in, is its
+    // opener's.
+    private Task OnNavigationCommittedAsync(Page page, string? navigationId)
     {
         return this.ChangeAsync(settled =>
         {
-            if (this.pending is { Call: not null } action && action.Page == page)
+            if (!this.navigations.TryGetValue(page, out StartedNavigation? started) || started.NavigationId != navigationId)
             {
-                this.pending = action.WithEffect(null, "RunAndWaitForNavigationAsync");
+                return;
             }
-            else if (page.Opener is null || this.actedPages.Contains(page))
+
+            this.navigations.Remove(page);
+            bool reported = this.reportedNavigations.TryGetValue(page, out HashSet<string>? urls) && urls.Contains(started.Url);
+            this.reportedNavigations.Remove(page);
+            if (started.Library)
+            {
+                return;
+            }
+
+            if (this.pending is { Call: not null, Navigated: false } action && action.Number == started.ActionNumber)
+            {
+                this.pending = action.WithEffect(null, "RunAndWaitForNavigationAsync") with { Navigated = true };
+            }
+            else if (!reported && (page.Opener is null || this.actedPages.Contains(page)))
             {
                 settled.AddRange(this.TakePending());
-                settled.Add(new($"await {this.GetPageVariable(page, settled)}.NavigateAsync({CodeWriter.Literal(url)});", []));
+                settled.Add(new($"await {this.GetPageVariable(page, settled)}.NavigateAsync({CodeWriter.Literal(started.Url)});", []));
             }
         });
     }
@@ -415,10 +566,16 @@ public sealed class CodeRecording : IAsyncDisposable
         });
     }
 
-    private Task OnDownloadAsync(Page page)
+    // A navigation that becomes a download never commits.
+    private Task OnDownloadAsync(Page page, string? navigationId)
     {
         return this.ChangeAsync(_ =>
         {
+            if (this.navigations.TryGetValue(page, out StartedNavigation? started) && started.NavigationId == navigationId)
+            {
+                this.navigations.Remove(page);
+            }
+
             if (this.pending is { Call: not null } action && action.Page == page && !action.HasEffect)
             {
                 string variable = this.downloadCount++ == 0 ? "download" : $"download{this.downloadCount - 1}";
@@ -475,7 +632,7 @@ public sealed class CodeRecording : IAsyncDisposable
 
     // The frames from the page's main frame down to a frame that have no variable yet, each with its element's
     // locator in its parent, or null when a frame's element cannot be found, as in a shadow root.
-    private async Task<List<FrameStep>?> DescribeFramesAsync(Frame frame)
+    private async Task<List<FrameStep>?> DescribeFramesAsync(Frame frame, CancellationToken lookups)
     {
         List<FrameStep> frames = [];
         for (Frame current = frame; current.ParentFrame is Frame parent; current = parent)
@@ -488,7 +645,7 @@ public sealed class CodeRecording : IAsyncDisposable
                 }
             }
 
-            if (await this.FindFrameElementAsync(parent, current).ConfigureAwait(false) is not string code)
+            if (await this.FindFrameElementAsync(parent, current, lookups).ConfigureAwait(false) is not string code)
             {
                 await this.browser.Group.LogAsync($"An action in browsing context {frame.Id} was not recorded: the element of frame {current.Id} was not found in its parent.", WebDriverBiDiLogLevel.Warn).ConfigureAwait(false);
                 return null;
@@ -501,9 +658,9 @@ public sealed class CodeRecording : IAsyncDisposable
     }
 
     // The locator, in its parent, of a frame's element, or null when it cannot be found.
-    private async Task<string?> FindFrameElementAsync(Frame parent, Frame child)
+    private async Task<string?> FindFrameElementAsync(Frame parent, Frame child, CancellationToken lookups)
     {
-        TimeBudget budget = this.CreateBudget(CancellationToken.None);
+        TimeBudget budget = this.CreateBudget(lookups);
         RemoteValueList? values;
         try
         {
@@ -565,14 +722,14 @@ public sealed class CodeRecording : IAsyncDisposable
     }
 
     // The element's locator; consecutive actions on one element, such as the fills of typing, share the first's.
-    private async Task<GeneratedLocator> FindLocatorAsync(Frame frame, JsonElement message, IReadOnlyList<NodeRemoteValue> elements)
+    private async Task<GeneratedLocator> FindLocatorAsync(Frame frame, JsonElement message, IReadOnlyList<NodeRemoteValue> elements, CancellationToken lookups)
     {
         if (this.lastLocator is { } last && last.Frame == frame && last.ElementId == elements[0].SharedId)
         {
             return last.Generated;
         }
 
-        GeneratedLocator generated = await LocatorGenerator.GenerateAsync(frame, message.GetProperty("target"), [.. message.GetProperty("ancestors").EnumerateArray()], elements, this.CreateBudget(CancellationToken.None)).ConfigureAwait(false);
+        GeneratedLocator generated = await LocatorGenerator.GenerateAsync(frame, message.GetProperty("target"), [.. message.GetProperty("ancestors").EnumerateArray()], elements, this.CreateBudget(lookups)).ConfigureAwait(false);
         this.lastLocator = new RememberedLocator(frame, elements[0].SharedId, generated);
         return generated;
     }
@@ -657,11 +814,15 @@ public sealed class CodeRecording : IAsyncDisposable
     {
         public string? Call { get; init; }
 
+        public int Number { get; init; }
+
         public Page? Page { get; init; }
 
         public string? PageVariable { get; init; }
 
         public bool HasEffect { get; init; }
+
+        public bool Navigated { get; init; }
 
         public IReadOnlyList<string> Comments { get; init; } = [];
 
@@ -682,4 +843,8 @@ public sealed class CodeRecording : IAsyncDisposable
     private sealed record RememberedLocator(Frame Frame, string? ElementId, GeneratedLocator Generated);
 
     private sealed record FrameStep(Frame Frame, string Code);
+
+    // The action pending when a navigation started, by its number, or null for none, and whether the library
+    // started it.
+    private sealed record StartedNavigation(string? NavigationId, string Url, int? ActionNumber, bool Library);
 }

@@ -219,6 +219,101 @@ public class CodeRecordingIntegrationTests
         Assert.Equal(recordsInPopups ? [.. expected, "await page1.GetByRole(\"button\", \"Inner\").ClickAsync();"] : expected, statements);
     }
 
+    // A protocol navigation is the browser's own, as typing an address is.
+    [Theory]
+    [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
+    public async Task NavigationAfterTheActionsOwnIsTheUsers(BrowserKind browserKind)
+    {
+        await using TestPageServer server = await TestPageServer.StartAsync();
+        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string start = server.UrlFor("recording-navigation.html");
+        await page.NavigateAsync(start, cancellationToken: TestContext.Current.CancellationToken);
+        CodeRecording recording = await group.DefaultBrowser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        List<string> statements = [];
+        TaskCompletionSource allSettled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        recording.OnStatement.AddObserver(e =>
+        {
+            statements.Add(e.Statement);
+            if (statements.Count == 8)
+            {
+                allSettled.TrySetResult();
+            }
+        });
+
+        async Task TypeAddressAsync(string url)
+        {
+            await group.Driver.BrowsingContext.NavigateAsync(new NavigateCommandParameters(page.Id, url) { Wait = ReadinessState.Complete }, cancellationToken: TestContext.Current.CancellationToken);
+            await page.WaitForFunctionAsync("() => document.querySelector('dramaturge-toolbar') !== null", cancellationToken: TestContext.Current.CancellationToken);
+        }
+
+        foreach (string button in new[] { "#location", "#assign", "#replace", "#later" })
+        {
+            await page.RunAndWaitForNavigationAsync(() => page.Locate(new CssLocator(button)).ClickAsync(cancellationToken: TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken);
+            await TypeAddressAsync(start);
+        }
+
+        await allSettled.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        string Waited(string name) => $"await page.RunAndWaitForNavigationAsync(() => page.GetByRole(\"button\", \"{name}\").ClickAsync());";
+        string Typed(string url) => $"await page.NavigateAsync(\"{url}\");";
+        Assert.Equal(
+            [
+                Waited("Location"),
+                Typed(start),
+                Waited("Assign"),
+                Typed(start),
+                Waited("Replace"),
+                Typed(start),
+                Waited("Later"),
+                Typed(start),
+            ],
+            statements);
+    }
+
+    // The page takes neither a protocol navigation nor a script's selection for the user's, so Dramaturge's calls report themselves.
+    [Theory]
+    [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
+    public async Task LibraryActionsAreRecordedAsTheirCalls(BrowserKind browserKind)
+    {
+        string upload = Path.Combine(Directory.CreateTempSubdirectory("dramaturge-recording-").FullName, "upload.txt");
+        File.WriteAllText(upload, "upload");
+        await using TestPageServer server = await TestPageServer.StartAsync();
+        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string start = server.UrlFor("recording-library.html");
+        string second = server.UrlFor("second.html");
+        await page.NavigateAsync(start, cancellationToken: TestContext.Current.CancellationToken);
+        CodeRecording recording = await group.DefaultBrowser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        List<string> statements = [];
+        recording.OnStatement.AddObserver(e => statements.Add(e.Statement));
+
+        await page.Locate(new CssLocator("#stay")).ClickAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.NavigateAsync(second, cancellationToken: TestContext.Current.CancellationToken);
+        await page.GoBackAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.GoForwardAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.GoBackAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.ReloadAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.WaitForFunctionAsync("() => document.querySelector('dramaturge-toolbar') !== null", cancellationToken: TestContext.Current.CancellationToken);
+        await page.Locate(new CssLocator("#color")).SelectOptionAsync([SelectOption.ByValue("g")], cancellationToken: TestContext.Current.CancellationToken);
+        await page.Locate(new CssLocator("#file")).SetInputFilesAsync([upload], cancellationToken: TestContext.Current.CancellationToken);
+        await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                "await page.GetByRole(\"button\", \"Stay\").ClickAsync();",
+                $"await page.NavigateAsync(\"{second}\");",
+                "await page.GoBackAsync();",
+                "await page.GoForwardAsync();",
+                "await page.GoBackAsync();",
+                "await page.ReloadAsync();",
+                "await page.GetByRole(\"combobox\", \"Color\").SelectOptionAsync([SelectOption.ByValue(\"g\")]);",
+                $"await page.GetByLabel(\"File\").SetInputFilesAsync([{JsonSerializer.Serialize(upload)}]);",
+            ],
+            statements);
+    }
+
     // The toolbar's six buttons share its width equally, in this order.
     private static async Task ClickToolbarAsync(Page page, string button)
     {

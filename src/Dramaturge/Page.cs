@@ -1220,11 +1220,14 @@ public sealed class Page
     }
 
     // History traversal has no wait of its own, so the navigation it causes is awaited from the frame's events.
-    private async Task<string> TraverseHistoryAsync(long delta, ReadinessState wait, TimeBudget budget)
+    private Task<string> TraverseHistoryAsync(long delta, ReadinessState wait, TimeBudget budget)
     {
-        int before = this.MainFrame.Navigations;
-        await this.Browser.Group.Driver.BrowsingContext.TraverseHistoryAsync(new TraverseHistoryCommandParameters(this.Id, delta), budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
-        await this.MainFrame.WaitForNavigationAsync(before, wait, budget).ConfigureAwait(false);
-        return this.Url;
+        return CodeRecording.RunNavigationAsync(this.MainFrame, delta < 0 ? "GoBackAsync()" : "GoForwardAsync()", async () =>
+        {
+            int before = this.MainFrame.Navigations;
+            await this.Browser.Group.Driver.BrowsingContext.TraverseHistoryAsync(new TraverseHistoryCommandParameters(this.Id, delta), budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
+            await this.MainFrame.WaitForNavigationAsync(before, wait, budget).ConfigureAwait(false);
+            return this.Url;
+        });
     }
 }

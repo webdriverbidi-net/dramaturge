@@ -650,6 +650,7 @@ public sealed class ElementLocator
             SetFilesCommandParameters parameters = new(this.Frame.Id, node!.ToSharedReference());
             parameters.Files.AddRange(fileList);
             await this.Group.Driver.Input.SetFilesAsync(parameters, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
+            await this.ReportToRecordingAsync(node!, "(recorder, element, files) => recorder.reportFiles(element, files)", [LocalValue.Array([.. fileList.Select(LocalValue.String)])], budget).ConfigureAwait(false);
         });
     }
 
@@ -1174,6 +1175,12 @@ public sealed class ElementLocator
     private Task TraceAsync(TracedCall call, TimeBudget budget, Func<TimeBudget, Task> action)
     {
         return TraceRecording.RunAsync(this.Frame.Page.Browser, this.Frame.Page, budget, call, action);
+    }
+
+    // The page does not take the events of some actions for the user's, so a browser recording code is told of them.
+    private Task ReportToRecordingAsync(NodeRemoteValue node, string function, IReadOnlyList<LocalValue> arguments, TimeBudget budget)
+    {
+        return this.Frame.Page.Browser.ActiveCodeRecording is null ? Task.CompletedTask : this.Group.ScriptHost.CallRecorderAsync(this.Frame.Id, function, [node.ToSharedReference(), .. arguments], budget);
     }
 
     private Task RecordTargetAsync(NodeRemoteValue node, TimeBudget budget)
@@ -1716,6 +1723,7 @@ public sealed class ElementLocator
         switch (Property(result, "status").As<StringRemoteValue>().Value)
         {
             case "selected":
+                await this.ReportToRecordingAsync(node!, "(recorder, element) => recorder.reportSelect(element)", [], budget).ConfigureAwait(false);
                 return new(true, [.. Property(result, "values").As<CollectionRemoteValue>().Value!.Select(value => value.As<StringRemoteValue>().Value)], string.Empty);
             case "notselect":
                 throw new InvalidOperationException($"{this} is not a <select> element.");

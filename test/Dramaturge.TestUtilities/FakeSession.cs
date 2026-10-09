@@ -172,10 +172,24 @@ public sealed class FakeSession
     /// <returns>The task object representing the asynchronous operation.</returns>
     public Task RaiseNavigationEventAsync(string method, string contextId, string url)
     {
+        return this.RaiseNavigationEventAsync(method, contextId, url, this.NextId("navigation"));
+    }
+
+    /// <summary>
+    /// Raises a navigation event for a browsing context with a given navigation ID, so that the events of one
+    /// navigation, such as "browsingContext.navigationStarted" and "browsingContext.navigationCommitted", match.
+    /// </summary>
+    /// <param name="method">The event's method.</param>
+    /// <param name="contextId">The ID of the browsing context.</param>
+    /// <param name="url">The URL navigated to.</param>
+    /// <param name="navigationId">The ID of the navigation.</param>
+    /// <returns>The task object representing the asynchronous operation.</returns>
+    public Task RaiseNavigationEventAsync(string method, string contextId, string url, string navigationId)
+    {
         JsonObject parameters = new()
         {
             ["context"] = contextId,
-            ["navigation"] = this.NextId("navigation"),
+            ["navigation"] = navigationId,
             ["timestamp"] = 1790000000000,
             ["url"] = url,
         };
