@@ -46,7 +46,7 @@ dramaturge session stop
 | `tabs`, `tab` *n* | Lists the tabs; makes tab *n* current |
 | `console` | Console messages and uncaught errors since the last `console`; `--all` for every one kept |
 | `screenshot -o` *file* | `--full-page`, or `--ref` *ref* for one element |
-| `code` | The session as C#: `--target program` (default), `xunit`, `nunit`, `mstest`, `tunit`; `-o` *file* |
+| `code` | The session as C#: `--target program` (default), `xunit`, `nunit`, `mstest`, `tunit`; `-o` *file*; `--reset` to start the recording over afterwards |
 | `session list`, `session stop` | |
 
 Every command takes `--session` *name* (several sessions can run at once) and `--json`, which answers with one line: `{"ok":true,"result":…}` or `{"ok":false,"error":{"code","message","hint"}}`. Exit codes: 0 success, 1 failed (see the error code), 2 usage, 3 no session.
@@ -79,7 +79,7 @@ A session is restrictive by default; widen it only as the task needs, with optio
 
 ## Exporting a Test
 
-- `code --target xunit -o CheckoutTests.cs` writes the test to a file; `code` writes everything done since `session start`, exploration included. To record a clean test, start a new session and repeat only the steps the test needs, with an `expect` after each step whose result matters.
+- `code --target xunit -o CheckoutTests.cs` writes the test to a file; `code` writes everything done since `session start`, exploration included. To record a clean test, run `code --reset` (it writes the code, then starts the recording over) and `open` the page the test starts from, or start a new session; then repeat only the steps the test needs, with an `expect` after each step whose result matters.
 - Refs never appear in the code; each element gets a lasting locator, such as `GetByRole("button", "Sign in")`, and an action that navigated is wrapped in `RunAndWaitForNavigationAsync`.
 - Not recorded: hovering, and `expect` conditions `hidden` and `enabled`. The code of a session with `--dialogs accept` sets its browser to accept dialogs too.
 - A test class needs its framework's one-time setup before it runs, as the `dramaturge` skill's `references/test-setup.md` shows: for xUnit, a file with `[assembly: AssemblyFixture(typeof(Dramaturge.Xunit.DramaturgeAssemblyFixture))]`, and the `Dramaturge.Xunit` package.

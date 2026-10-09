@@ -339,6 +339,7 @@ public static class DramaturgeTool
         Option<int?> timeoutOption = new("--timeout") { Description = "The seconds to wait for the condition; the default is 5." };
         Option<CodeTarget> codeTargetOption = new("--target") { Description = "The kind of file: program (the default), xunit, nunit, mstest, or tunit.", DefaultValueFactory = _ => CodeTarget.Program };
         Option<string?> codeOutputOption = new("--output", "-o") { Description = "A file to write the code to, instead of showing it." };
+        Option<bool> resetOption = new("--reset") { Description = "Then start the recording over: the code comes from what is done next. Open the page the test starts from next." };
         Option<bool> byValueOption = new("--by-value") { Description = "Match options by their values, not their labels." };
         Command Page(string name, string description, Func<ParseResult, Dictionary<string, object?>> arguments, params Symbol[] symbols)
         {
@@ -383,7 +384,7 @@ public static class DramaturgeTool
             Page("hover", "Move the mouse over an element, and show what changed.", parseResult => Act(parseResult), refArgument, noSnapshotOption),
             Page("upload", "Choose files for a file input, and show what changed.", parseResult => Act(parseResult, new() { ["files"] = parseResult.GetValue(filesArgument)!.Select(Path.GetFullPath).ToArray() }), refArgument, filesArgument, noSnapshotOption),
             Page("expect", "Wait until a condition is met, and assert it; the session's code records the assertion.", parseResult => new() { ["condition"] = parseResult.GetValue(conditionArgument), ["timeout"] = parseResult.GetValue(timeoutOption) }, conditionArgument, timeoutOption),
-            Page("code", "Show the session's recording as C#: a program, or, with --target, a test class.", parseResult => new() { ["target"] = parseResult.GetValue(codeTargetOption).ToString().ToLowerInvariant(), ["path"] = parseResult.GetValue(codeOutputOption) is string path ? Path.GetFullPath(path) : null }, codeTargetOption, codeOutputOption),
+            Page("code", "Show the session's recording as C#: a program, or, with --target, a test class.", parseResult => new() { ["target"] = parseResult.GetValue(codeTargetOption).ToString().ToLowerInvariant(), ["path"] = parseResult.GetValue(codeOutputOption) is string path ? Path.GetFullPath(path) : null, ["reset"] = parseResult.GetValue(resetOption) }, codeTargetOption, codeOutputOption, resetOption),
             Page("console", "Show the console messages, and uncaught errors, of the session's tabs since the last console command.", parseResult => new() { ["all"] = parseResult.GetValue(allOption) }, allOption),
         ];
     }

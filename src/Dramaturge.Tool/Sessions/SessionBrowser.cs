@@ -18,7 +18,7 @@ using WebDriverBiDi.Session;
 /// A session's browser, as commands drive it: its tabs, the one commands act on, each tab's latest snapshot, whose refs
 /// actions take, the documents each frame has had, and the console messages not yet read.
 /// </summary>
-internal sealed class SessionBrowser : IDisposable
+internal sealed class SessionBrowser : IAsyncDisposable
 {
     private const int ConsoleLimit = 500;
     private const string NoTab = "no-tab";
@@ -26,7 +26,7 @@ internal sealed class SessionBrowser : IDisposable
     private const int EffectLimit = 100;
 
     private readonly Browser browser;
-    private readonly CodeRecording recording;
+    private readonly CodeRecordingOptions recordingOptions;
     private readonly SessionSettings settings;
     private readonly HashSet<string> allowedOrigins;
     private readonly List<string> uploadDirectories;
@@ -41,28 +41,31 @@ internal sealed class SessionBrowser : IDisposable
     private long consoleCount;
     private long consoleRead;
     private Page? current;
+    private CodeRecording recording;
 
-    private SessionBrowser(Browser browser, CodeRecording recording, SessionSettings settings)
+    private SessionBrowser(Browser browser, CodeRecording recording, CodeRecordingOptions recordingOptions, SessionSettings settings)
     {
         this.browser = browser;
         this.recording = recording;
+        this.recordingOptions = recordingOptions;
         this.settings = settings;
         this.allowedOrigins = [.. settings.AllowedOrigins.Select(origin => Origin(new Uri(origin)))];
         this.uploadDirectories = [.. settings.UploadDirectories.Select(directory => RealPath(directory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar)];
     }
 
     /// <summary>
-    /// Starts following a session's browser, acting on its first tab, and, if the session allows only some origins,
-    /// stops its pages from navigating to others.
+    /// Starts following a session's browser, acting on its first tab, and recording it as code, and, if the session
+    /// allows only some origins, stops its pages from navigating to others.
     /// </summary>
     /// <param name="browser">The browser.</param>
-    /// <param name="recording">The recording of the session as code.</param>
     /// <param name="settings">The session's settings.</param>
     /// <param name="cancellationToken">A token that cancels the start.</param>
     /// <returns>The session's browser.</returns>
-    public static async Task<SessionBrowser> StartAsync(Browser browser, CodeRecording recording, SessionSettings settings, CancellationToken cancellationToken)
+    public static async Task<SessionBrowser> StartAsync(Browser browser, SessionSettings settings, CancellationToken cancellationToken)
     {
-        SessionBrowser session = new(browser, recording, settings);
+        CodeRecordingOptions recordingOptions = new() { ShowToolbar = false, MaskPasswords = settings.MaskPasswords, AcceptDialogs = settings.Dialogs == UserPromptHandlerType.Accept };
+        CodeRecording recording = await browser.RecordCodeAsync(recordingOptions, cancellationToken).ConfigureAwait(false);
+        SessionBrowser session = new(browser, recording, recordingOptions, settings);
         lock (session.lockObject)
         {
             session.observers.Add(browser.Group.Driver.BrowsingContext.OnNavigationCommitted.AddObserver(e => session.OnDocument(e.BrowsingContextId)));
@@ -160,7 +163,7 @@ internal sealed class SessionBrowser : IDisposable
                 "expect" => Texts(arguments, "condition") is List<string> words ? await this.ExpectAsync(words, Number(arguments, "timeout"), cancellationToken).ConfigureAwait(false) : BadArguments(command),
                 "upload" => Texts(arguments, "files") is List<string> files ? await this.UploadAsync(arguments, files, snapshot, cancellationToken).ConfigureAwait(false) : BadArguments(command),
                 "console" => this.ReadConsole(Flag(arguments, "all")),
-                "code" => await this.WriteCodeAsync(Text(arguments, "target"), Text(arguments, "path"), cancellationToken).ConfigureAwait(false),
+                "code" => await this.WriteCodeAsync(Text(arguments, "target"), Text(arguments, "path"), Flag(arguments, "reset"), cancellationToken).ConfigureAwait(false),
                 _ => null,
             };
         }
@@ -170,14 +173,19 @@ internal sealed class SessionBrowser : IDisposable
         }
     }
 
-    /// <inheritdoc/>
-    public void Dispose()
+    /// <summary>
+    /// Stops following the browser, and ends its recording.
+    /// </summary>
+    /// <returns>A task that completes when the recording has ended.</returns>
+    public async ValueTask DisposeAsync()
     {
         lock (this.lockObject)
         {
             this.observers.ForEach(observer => observer.Dispose());
             this.observers.Clear();
         }
+
+        await this.recording.DisposeAsync().ConfigureAwait(false);
     }
 
     private static string? Text(JsonElement arguments, string name)
@@ -658,8 +666,9 @@ internal sealed class SessionBrowser : IDisposable
         }
     }
 
-    // The session's code for a target, the program by default, as text, or written to a file.
-    private async Task<DaemonAnswer> WriteCodeAsync(string? targetName, string? path, CancellationToken cancellationToken)
+    // The session's code for a target, the program by default, as text, or written to a file; and then, if asked, the
+    // recording starts over, from what is done next.
+    private async Task<DaemonAnswer> WriteCodeAsync(string? targetName, string? path, bool reset, CancellationToken cancellationToken)
     {
         if (Enum.GetNames<CodeTarget>().FirstOrDefault(name => string.Equals(name, targetName ?? nameof(CodeTarget.Program), StringComparison.OrdinalIgnoreCase)) is not string name)
         {
@@ -685,6 +694,13 @@ internal sealed class SessionBrowser : IDisposable
             }
 
             result["path"] = path;
+        }
+
+        if (reset)
+        {
+            await this.recording.StopAsync(cancellationToken).ConfigureAwait(false);
+            this.recording = await this.browser.RecordCodeAsync(this.recordingOptions, cancellationToken).ConfigureAwait(false);
+            result["reset"] = true;
         }
 
         return DaemonAnswer.Of(result);
