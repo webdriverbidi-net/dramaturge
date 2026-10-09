@@ -63,7 +63,7 @@ What an action causes is recorded with it:
 | Navigates its page | `await page.RunAndWaitForNavigationAsync(() => …);` |
 | Opens a popup | `Page page1 = await page.RunAndWaitForPopupAsync(() => …);`, and the popup's actions use `page1` |
 | Starts a download | `Download download = await page.RunAndWaitForDownloadAsync(() => …);` |
-| Opens a dialog | A comment above it naming the dialog and its message; the code does not answer the dialog, so the browser handles it as it did while recording, by default dismissing it (see [Dialogs](pages-and-frames.md#dialogs)) |
+| Opens a dialog | A comment above it naming the dialog and its message; the code does not answer the dialog, so the browser handles it as it did while recording, by default dismissing it (see [Dialogs](pages-and-frames.md#dialogs)); a recording with `CodeRecordingOptions.AcceptDialogs` writes code that sets its browser to accept them |
 
 An action in a frame first declares the frame from its element, once, as `Frame frame = await page.GetByTitle("Payment").ContentFrameAsync();`, and frames within it from that. Hovering, dragging, scrolling, and the mouse's back and forward buttons are not recorded.
 
@@ -101,7 +101,7 @@ When none finds the element alone, a locator is looked for within the element's 
 
 ## Recording from Code
 
-`RecordCodeAsync` records a browser's actions as code, as the tool does. With the toolbar, the browser should have a window, since the toolbar needs a user; `CodeRecordingOptions.ShowToolbar = false` records without it, as a program driving the browser through Dramaturge would, though then no locator can be picked and no assertion added from the page. `OnStatement` reports each statement as it is complete, `OnPendingStatement` the open statement each time it starts or changes, `OnLocatorPicked` each locator picked with the toolbar, and `Code` gives the whole file at any time, the open statement included as it is then. `GetCodeAsync` gives the file for any target, whatever the recording's, once what the browser has reported so far is recorded, so that it includes the statements of the actions just done. `StopAsync` completes the last statement, removes the toolbar, and returns the code.
+`RecordCodeAsync` records a browser's actions as code, as the tool does. With the toolbar, the browser should have a window, since the toolbar needs a user; `CodeRecordingOptions.ShowToolbar = false` records without it, as a program driving the browser through Dramaturge would, though then no locator can be picked and no assertion added from the page. `CodeRecordingOptions.AcceptDialogs` says that the recorded browser accepts dialogs, so that the code sets its own browser to accept them too: a program through its launcher, and a test class by overriding `ConfigureLauncher`. `OnStatement` reports each statement as it is complete, `OnPendingStatement` the open statement each time it starts or changes, `OnLocatorPicked` each locator picked with the toolbar, and `Code` gives the whole file at any time, the open statement included as it is then. `GetCodeAsync` gives the file for any target, whatever the recording's, once what the browser has reported so far is recorded, so that it includes the statements of the actions just done. `StopAsync` completes the last statement, removes the toolbar, and returns the code.
 
 [!code-csharp[Record Code](../code/CodegenSamples.cs#RecordCode)]
 

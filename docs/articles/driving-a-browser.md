@@ -182,7 +182,7 @@ The exported code is a draft, as `codegen`'s is ([Code Generation](codegen.md)):
 
 - Everything the session did is in it, including the agent's exploring; start a new session for the run the test should repeat.
 - `expect` conditions of the kinds `hidden` and `enabled`, and hovering, are not recorded, so the test does not wait for, or do, those steps.
-- A session started with `--dialogs accept` answers dialogs the code does not; `code` says so in a note.
+- The code of a session started with `--dialogs accept` sets its browser to accept dialogs too: a program through its launcher, and a test class by overriding `ConfigureLauncher`, which gives the class a browser of its own.
 - `expect text` on the page as a whole is recorded as an expectation on the page's `body`, which counts hidden text too.
 
 ## Limitations
