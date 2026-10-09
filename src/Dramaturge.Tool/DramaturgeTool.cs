@@ -124,10 +124,17 @@ public static class DramaturgeTool
             error,
             token));
 
-        Command session = CreateSessionCommand(args, pathOption, createDownloadOptions, progress, configureLauncher, sessionHost, output, error);
+        Option<string> sessionOption = new("--session") { Description = "The session's name.", DefaultValueFactory = _ => SessionPaths.DefaultName };
+        Option<bool> jsonOption = new("--json") { Description = "Write the result, or the error, as one line of JSON." };
+        Command session = CreateSessionCommand(args, pathOption, sessionOption, jsonOption, createDownloadOptions, progress, configureLauncher, sessionHost, output, error);
 
         // A RootCommand would name itself for the entry assembly, Dramaturge.Tool, rather than the command.
         Command root = new(CommandName, "Installs, lists, and removes the browsers and drivers that Dramaturge.Browsers caches, records browser actions as C#, and runs browser sessions that commands drive.") { browsers, codegen, session };
+        foreach (Command command in CreatePageCommands(sessionOption, jsonOption, sessionHost, output, error))
+        {
+            root.Subcommands.Add(command);
+        }
+
         root.Options.Add(new HelpOption());
         root.Options.Add(new VersionOption());
 
@@ -146,16 +153,16 @@ public static class DramaturgeTool
     }
 
     // The settings start takes are passed on, as they were given, to the serve it starts.
-    private static Command CreateSessionCommand(string[] args, Option<string?> pathOption, Func<string?, IProgress<BrowserDownloadProgress>, BrowserDownloadOptions> createDownloadOptions, ProgressWriter progress, Func<BrowserLauncherBuilder, BrowserLauncherBuilder> configureLauncher, SessionHost host, TextWriter output, TextWriter error)
+    private static Command CreateSessionCommand(string[] args, Option<string?> pathOption, Option<string> sessionOption, Option<bool> jsonOption, Func<string?, IProgress<BrowserDownloadProgress>, BrowserDownloadOptions> createDownloadOptions, ProgressWriter progress, Func<BrowserLauncherBuilder, BrowserLauncherBuilder> configureLauncher, SessionHost host, TextWriter output, TextWriter error)
     {
-        Option<string> sessionOption = new("--session") { Description = "The session's name.", DefaultValueFactory = _ => SessionPaths.DefaultName };
         Option<BrowserKind> browserOption = new("--browser") { Description = "The browser to drive.", DefaultValueFactory = _ => BrowserKind.Chrome };
         Option<string?> channelOption = new("--channel") { Description = "The browser's release channel, as browsers install names it: stable (the default), beta, dev, and canary for Chrome and Edge, or nightly and esr for Firefox." };
         Option<bool> headedOption = new("--headed") { Description = "Show the browser's window. By default the browser has none." };
         Option<string?> userDataDirectoryOption = new("--user-data-dir") { Description = "A profile directory for the browser to keep. By default it gets a temporary one." };
         Option<int> idleTimeoutOption = new("--idle-timeout") { Description = "The minutes the session waits for a command before it stops.", DefaultValueFactory = _ => 30 };
         Option<bool> maskPasswordsOption = new("--mask-passwords") { Description = "Write values typed into, or expected of, password fields in the session's code as a read of the DRAMATURGE_PASSWORD environment variable." };
-        Option<bool> jsonOption = new("--json") { Description = "Write the result, or the error, as one line of JSON." };
+        Option<string[]> allowOriginOption = new("--allow-origin") { Description = "An origin, such as https://example.com, the session's pages may navigate to; give it once for each. By default every origin is allowed." };
+        Option<bool> allowFileUrlsOption = new("--allow-file-urls") { Description = "Let the session open file: URLs." };
         Option<bool> detachedOption = new("--detached") { Hidden = true };
         SessionSettings Settings(ParseResult parseResult) => new(
             parseResult.GetValue(sessionOption)!,
@@ -164,11 +171,12 @@ public static class DramaturgeTool
             parseResult.GetValue(headedOption),
             parseResult.GetValue(userDataDirectoryOption),
             TimeSpan.FromMinutes(parseResult.GetValue(idleTimeoutOption)),
-            parseResult.GetValue(maskPasswordsOption));
-        Func<ParseResult, CancellationToken, Task<int>> Written(Func<ParseResult, CancellationToken, Task<CommandOutcome>> run) =>
-            async (parseResult, token) => CommandOutput.Write(await run(parseResult, token).ConfigureAwait(false), parseResult.GetValue(jsonOption), output, error);
+            parseResult.GetValue(maskPasswordsOption),
+            parseResult.GetValue(allowOriginOption) ?? [],
+            parseResult.GetValue(allowFileUrlsOption));
+        Func<ParseResult, CancellationToken, Task<int>> Written(Func<ParseResult, CancellationToken, Task<CommandOutcome>> run) => WrittenAction(run, jsonOption, output, error);
 
-        Command start = new("start", "Start a browser session that later commands drive, and that stops with session stop, when its browser closes, or when it is idle.") { sessionOption, browserOption, channelOption, headedOption, userDataDirectoryOption, idleTimeoutOption, maskPasswordsOption, pathOption, jsonOption };
+        Command start = new("start", "Start a browser session that later commands drive, and that stops with session stop, when its browser closes, or when it is idle.") { sessionOption, browserOption, channelOption, headedOption, userDataDirectoryOption, idleTimeoutOption, maskPasswordsOption, allowOriginOption, allowFileUrlsOption, pathOption, jsonOption };
         start.SetAction(Written((parseResult, token) => StartSessionAsync(["session", "serve", .. args.Skip(2)], Settings(parseResult), host, error, token)));
 
         Command serve = new("serve", "Serve a session; session start runs it.") { Hidden = true };
@@ -206,6 +214,8 @@ public static class DramaturgeTool
         {
             problem = "--idle-timeout must be at least 1 minute.";
         }
+
+        problem ??= settings.AllowedOrigins.FirstOrDefault(origin => !IsOrigin(origin)) is string notOrigin ? $"'{notOrigin}' is not an origin, such as https://example.com." : null;
 
         try
         {
@@ -280,6 +290,74 @@ public static class DramaturgeTool
         }
 
         return CommandOutcome.Success(new Dictionary<string, object?>() { ["name"] = name }, $"Stopped session '{name}'.");
+    }
+
+    // An origin is an http or https address with nothing after its host and port.
+    private static bool IsOrigin(string origin)
+    {
+        return Uri.TryCreate(origin, UriKind.Absolute, out Uri? uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) && SessionBrowser.Origin(uri) == origin.TrimEnd('/').ToLowerInvariant();
+    }
+
+    private static Func<ParseResult, CancellationToken, Task<int>> WrittenAction(Func<ParseResult, CancellationToken, Task<CommandOutcome>> run, Option<bool> jsonOption, TextWriter output, TextWriter error)
+    {
+        return async (parseResult, token) => CommandOutput.Write(await run(parseResult, token).ConfigureAwait(false), parseResult.GetValue(jsonOption), output, error);
+    }
+
+    // The commands that drive a session's browser, each sent to the session's daemon.
+    private static Command[] CreatePageCommands(Option<string> sessionOption, Option<bool> jsonOption, SessionHost host, TextWriter output, TextWriter error)
+    {
+        Option<bool> noSnapshotOption = new("--no-snapshot") { Description = "Leave out the page's snapshot." };
+        Argument<string> urlArgument = new("url") { Description = "The address to open, such as https://example.com/." };
+        Argument<int> indexArgument = new("index") { Description = "The tab's number, as tabs lists it." };
+        Option<string> outputOption = new("--output", "-o") { Description = "The file to save the screenshot in, as PNG.", Required = true };
+        Option<bool> fullPageOption = new("--full-page") { Description = "Capture the whole page, not only what the window shows." };
+        Option<bool> allOption = new("--all") { Description = "Show every message kept, not only those since the last console command." };
+        Command Page(string name, string description, Func<ParseResult, Dictionary<string, object?>> arguments, params Symbol[] symbols)
+        {
+            Command command = new(name, description);
+            foreach (Symbol symbol in symbols)
+            {
+                if (symbol is Argument argument)
+                {
+                    command.Add(argument);
+                }
+                else
+                {
+                    command.Add((Option)symbol);
+                }
+            }
+
+            command.Add(sessionOption);
+            command.Add(jsonOption);
+            command.SetAction(WrittenAction((parseResult, token) => SendToSessionAsync(host, parseResult.GetValue(sessionOption)!, name, arguments(parseResult), token), jsonOption, output, error));
+            return command;
+        }
+
+        Dictionary<string, object?> Snapshot(ParseResult parseResult) => new() { ["snapshot"] = !parseResult.GetValue(noSnapshotOption) };
+        return
+        [
+            Page("open", "Open an address in the session's current tab, and show its snapshot.", parseResult => new() { ["url"] = parseResult.GetValue(urlArgument), ["snapshot"] = !parseResult.GetValue(noSnapshotOption) }, urlArgument, noSnapshotOption),
+            Page("back", "Go back in the current tab's history, and show its snapshot.", Snapshot, noSnapshotOption),
+            Page("forward", "Go forward in the current tab's history, and show its snapshot.", Snapshot, noSnapshotOption),
+            Page("reload", "Reload the current tab, and show its snapshot.", Snapshot, noSnapshotOption),
+            Page("url", "Show the current tab's address and title.", _ => new() { ["snapshot"] = false }),
+            Page("snapshot", "Show the current tab's accessibility snapshot, whose refs, such as e7, name its elements.", _ => new() { ["snapshot"] = true }),
+            Page("tabs", "List the session's tabs.", _ => []),
+            Page("tab", "Make a tab the current one.", parseResult => new() { ["index"] = parseResult.GetValue(indexArgument) }, indexArgument),
+            Page("screenshot", "Save a screenshot of the current tab.", parseResult => new() { ["path"] = Path.GetFullPath(parseResult.GetValue(outputOption)!), ["fullPage"] = parseResult.GetValue(fullPageOption) }, outputOption, fullPageOption),
+            Page("console", "Show the console messages, and uncaught errors, of the session's tabs since the last console command.", parseResult => new() { ["all"] = parseResult.GetValue(allOption) }, allOption),
+        ];
+    }
+
+    private static async Task<CommandOutcome> SendToSessionAsync(SessionHost host, string name, string command, Dictionary<string, object?> arguments, CancellationToken cancellationToken)
+    {
+        if (SessionPaths.CheckName(name) is string problem)
+        {
+            return CommandOutcome.Failure(new SessionError(CommandOutput.Usage, problem));
+        }
+
+        SessionReply reply = await SessionClient.SendAsync(SessionPaths.SocketPath(SessionPaths.Prepare(host.Directory), name), name, command, arguments, cancellationToken).ConfigureAwait(false);
+        return reply.Result is JsonElement result ? CommandOutcome.Success(result, SessionText.Render(command, result)) : CommandOutcome.Failure(reply.Error!);
     }
 
     private static string CommandPath(System.CommandLine.Parsing.CommandResult command)

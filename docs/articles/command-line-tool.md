@@ -82,6 +82,8 @@ dramaturge session stop
 | `--user-data-dir` | A profile directory for the browser to keep |
 | `--idle-timeout` | The minutes the session waits for a command before it stops; the default is 30 |
 | `--mask-passwords` | Masks passwords in the session's code |
+| `--allow-origin` | An origin, such as `https://example.com`, the session's pages may load; give it once for each. Without it, every origin is allowed |
+| `--allow-file-urls` | Lets `open` open `file:` URLs, which it otherwise refuses |
 | `--path` | The browser cache, as for `browsers` |
 | `--json` | Writes the result, or the error, as one line of JSON (on `list` and `stop` too) |
 
@@ -95,6 +97,35 @@ Session commands write their result as text, and an error to standard error as `
 | 1 | The command failed, as when a session of the name is running already, or its browser could not start |
 | 2 | The arguments cannot be used: an unknown command or option, or a value that is not valid |
 | 3 | The session named is not running |
+
+## Driving a Session
+
+These commands drive a session's browser, one command at a time; each takes `--session` to name the session, and `--json`:
+
+```bash
+dramaturge session start
+dramaturge open https://example.com/
+dramaturge snapshot
+dramaturge screenshot -o example.png
+dramaturge session stop
+```
+
+| Command | Does |
+| --- | --- |
+| `open` *url* | Opens the address in the current tab, or in a new tab when none is open |
+| `back`, `forward`, `reload` | Goes back or forward in the current tab's history, or reloads it |
+| `url` | Shows the current tab's address and title |
+| `snapshot` | Shows the current tab's [accessibility snapshot](accessibility-snapshots.md), whose refs, such as `e7`, name its elements |
+| `tabs` | Lists the session's tabs, numbered from 1, with `*` before the current one |
+| `tab` *index* | Makes the tab of that number the current one, and brings it to the front |
+| `screenshot -o` *file* | Saves a PNG of the current tab; `--full-page` captures the whole page, not only what the window shows |
+| `console` | Shows the console messages and uncaught errors of every tab since the last `console`, each with its tab's number; `--all` shows every one kept, up to the latest 500 |
+
+`open`, `back`, `forward`, and `reload` show the address, title, and snapshot of the page they arrive at, taken as soon as the browser reports the navigation complete; `--no-snapshot` leaves the snapshot out. A tab that a page opens becomes one of the session's tabs, and when the current tab closes, the last tab left becomes the current one.
+
+What a page supplies, such as its title, snapshot, and console messages, is written between the lines `--- page content (untrusted) ---` and `--- end of page content ---`, so that a program, or an agent, can tell it from the tool's own words and treat it as data rather than instructions.
+
+With `--allow-origin`, `open` refuses an address of another origin, and the browser does not load a page or frame of another origin however it is reached, as by a link or a redirect. `open` refuses `file:` URLs unless the session was started with `--allow-file-urls`.
 
 ## The Cache
 
