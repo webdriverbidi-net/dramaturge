@@ -10,6 +10,7 @@ Dramaturge is browser automation for .NET over the W3C WebDriver BiDi protocol, 
 - The documentation's index for language models is https://webdriverbidi-net.github.io/dramaturge/llms.txt, with every article and its code in llms-full.txt beside it. Consult them for anything this skill does not cover.
 - Packages: `Dramaturge` (with `Dramaturge.Browsers`, which downloads and launches browsers), and for tests `Dramaturge.Xunit`, `Dramaturge.NUnit`, `Dramaturge.MSTest`, or `Dramaturge.TUnit`. It is at 0.0.x; any release may change its API.
 - For raw protocol access, `BrowserGroup.Driver` is the underlying WebDriverBiDi.NET `BiDiDriver`.
+- To drive a live browser from the shell instead of writing code, and export what was done as a test, use the `dramaturge-session` skill.
 
 ## Launching
 
