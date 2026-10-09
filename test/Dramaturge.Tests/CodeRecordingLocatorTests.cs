@@ -186,6 +186,48 @@ public class CodeRecordingLocatorTests
         Assert.DoesNotContain("using WebDriverBiDi.BrowsingContext;", code);
     }
 
+    // An unnamed ancestor, such as one of several list items, is told from the others by its heading.
+    [Fact]
+    public async Task ElementIsFoundWithinTheAncestorThatHasItsHeading()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        JsonObject item = new() { ["role"] = "listitem", ["name"] = string.Empty, ["headingName"] = "Blue Mug", ["cssPath"] = "ul > li:nth-of-type(2)", ["labels"] = new JsonArray() };
+        JsonObject list = new() { ["role"] = "list", ["name"] = string.Empty, ["headingName"] = null, ["cssPath"] = "ul", ["labels"] = new JsonArray() };
+        Answer(session, request => request switch
+        {
+            { Kind: "role", Scoped: false } when request.Value.Contains("listitem") => ["item-1", "item-2"],
+            { Kind: "role+name", Scoped: true } when request.Value.Contains("heading") => request.Start == "item-2" ? ["heading-2"] : [],
+            { Kind: "role", Scoped: true } => [Target],
+            _ => [Target, "node-9"],
+        });
+
+        string statement = await RecordClickAsync(driver, session, page, Facts(), [item, list], [Target, "item-2", "list-1"]);
+
+        Assert.Equal("await page.GetByRole(\"listitem\").Filter(has: page.GetByRole(\"heading\", \"Blue Mug\")).GetByRole(\"button\").ClickAsync();", statement);
+    }
+
+    // A heading that more than one ancestor has does not tell them apart; the ancestor's own ID is tried next.
+    [Fact]
+    public async Task AncestorWhoseHeadingIsNotItsAloneIsFoundOtherwise()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        JsonObject item = new() { ["role"] = "listitem", ["name"] = string.Empty, ["headingName"] = "Mug", ["cssPath"] = "#blue-card", ["labels"] = new JsonArray() };
+        Answer(session, request => request switch
+        {
+            { Kind: "role", Scoped: false } when request.Value.Contains("listitem") => ["item-1", "item-2"],
+            { Kind: "role+name", Scoped: true } when request.Value.Contains("heading") => ["heading-of-" + request.Start],
+            { Kind: "css", Scoped: false } when request.Value == "#blue-card" => ["item-2"],
+            { Kind: "role", Scoped: true } => [Target],
+            _ => [Target, "node-9"],
+        });
+
+        string statement = await RecordClickAsync(driver, session, page, Facts(), [item], [Target, "item-2"]);
+
+        Assert.Equal("await page.Locate(new CssLocator(\"#blue-card\")).GetByRole(\"button\").ClickAsync();", statement);
+    }
+
     // Text the locator already finds the element by is not asserted again.
     [Theory]
     [InlineData("text", "Save now", "Save now", "page.GetByText(\"Save now\")", "ToBeVisibleAsync()")]
@@ -299,10 +341,11 @@ public class CodeRecordingLocatorTests
     {
         JsonObject locator = parameters["locator"]!.AsObject();
         bool scoped = parameters["startNodes"] is JsonArray { Count: > 0 };
+        string? start = scoped ? (string?)parameters["startNodes"]![0]!["sharedId"] : null;
         switch ((string)locator["type"]!)
         {
             case "accessibility":
-                return new(locator["value"]!["name"] is null ? "role" : "role+name", true, scoped, locator["value"]!.ToJsonString());
+                return new(locator["value"]!["name"] is null ? "role" : "role+name", true, scoped, locator["value"]!.ToJsonString()) { Start = start };
             case "innerText":
                 return new("text", (string?)locator["matchType"] == "full", scoped, (string)locator["value"]!);
             default:
@@ -357,6 +400,10 @@ public class CodeRecordingLocatorTests
         return action;
     }
 
-    // A lookup the recording made: the kind of locator, whether it matches exactly, whether it searches within other elements, and its value.
-    private sealed record Request(string Kind, bool Exact, bool Scoped, string Value);
+    // A lookup the recording made: the kind of locator, whether it matches exactly, whether it searches within other
+    // elements, and its value, and, for a role lookup within other elements, the first of them.
+    private sealed record Request(string Kind, bool Exact, bool Scoped, string Value)
+    {
+        public string? Start { get; init; }
+    }
 }

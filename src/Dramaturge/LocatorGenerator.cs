@@ -20,9 +20,20 @@ internal static class LocatorGenerator
 {
     private const int MaxTextLength = 80;
 
+    // Stands for the frame's variable inside a locator's C#, as in a filter's own locator; no literal can contain it.
+    private const string FrameVariable = "\u001Fframe\u001F";
+
     private static readonly HashSet<string> UnnamedRoles = ["generic", "none", "presentation"];
 
     private static readonly AttributeQueryMethod[] AttributeQueryMethods = [new("placeholder", "GetByPlaceholder"), new("alt", "GetByAltText"), new("title", "GetByTitle")];
+
+    /// <summary>
+    /// Writes a generated locator's C# for the variable of the frame it starts from.
+    /// </summary>
+    /// <param name="code">The locator's C#, as <see cref="GeneratedLocator.Code"/> gives it.</param>
+    /// <param name="frameVariable">The frame's variable, such as <c>page</c>.</param>
+    /// <returns>The C#, the variable included, such as <c>page.GetByRole("button", "Save")</c>.</returns>
+    public static string Write(string code, string frameVariable) => $"{frameVariable}.{code.Replace(FrameVariable, frameVariable)}";
 
     /// <summary>
     /// Chooses a locator for an element.
@@ -142,9 +153,18 @@ internal static class LocatorGenerator
             yield return TestId(testId);
         }
 
-        if (Text(facts, "role") is string role && !UnnamedRoles.Contains(role) && Text(facts, "name") is string name)
+        if (Text(facts, "role") is string role && !UnnamedRoles.Contains(role))
         {
-            yield return Role(role, name);
+            if (Text(facts, "name") is string name)
+            {
+                yield return Role(role, name);
+            }
+
+            // An unnamed ancestor, such as a card or a list item, is told from others like it by its heading.
+            if (Text(facts, "headingName") is string heading)
+            {
+                yield return new($"GetByRole({CodeWriter.Literal(role)}).Filter(has: {FrameVariable}.GetByRole(\"heading\", {CodeWriter.Literal(heading)}))", frame => frame.GetByRole(role).Filter(has: frame.GetByRole("heading", heading)), null);
+            }
         }
 
         // A CSS path that starts at the element is its unique ID.

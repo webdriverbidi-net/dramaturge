@@ -465,7 +465,7 @@ public sealed class CodeRecording : IAsyncDisposable
         {
             this.actedPages.Add(frame.Page);
             string pageVariable = this.GetPageVariable(frame.Page, settled);
-            string locator = $"{this.DeclareFrames(frame, frames, pageVariable, settled)}.{found.Code}";
+            string locator = LocatorGenerator.Write(found.Code, this.DeclareFrames(frame, frames, pageVariable, settled));
             switch (kind)
             {
                 case "pick":
@@ -822,7 +822,7 @@ public sealed class CodeRecording : IAsyncDisposable
         {
             settled.AddRange(this.TakePending());
             string variable = this.frameVariables.Count == 0 ? "frame" : $"frame{this.frameVariables.Count}";
-            settled.Add(new($"Frame {variable} = await {Variable(declared.ParentFrame!)}.{code}.ContentFrameAsync();", LocatorNamespaces(code)));
+            settled.Add(new($"Frame {variable} = await {LocatorGenerator.Write(code, Variable(declared.ParentFrame!))}.ContentFrameAsync();", LocatorNamespaces(code)));
             this.frameVariables[declared] = variable;
         }
 

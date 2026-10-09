@@ -91,7 +91,7 @@ Each locator is the first of these that finds the element and nothing else, as D
 4. `GetByText`, with text longer than 80 characters cut at a word
 5. `GetByRole` alone
 
-When none finds the element alone, a locator is looked for within the element's nearest ancestor that its test ID, its role and name, or its own ID finds alone, as in `page.GetByTestId("cart").GetByRole("button", "Remove")`; then the first one that finds the element among others is used with `Nth`; and last, the element's CSS path. An element that has already left its page when its locator is chosen, as a link does once its click navigates, gets the first locator of the list, unconfirmed.
+When none finds the element alone, a locator is looked for within the element's nearest ancestor that its test ID, its role and name, its role and the heading within it, or its own ID finds alone, as in `page.GetByTestId("cart").GetByRole("button", "Remove")`, or, for one of several products in a list, `page.GetByRole("listitem").Filter(has: page.GetByRole("heading", "Blue Mug")).GetByRole("button", "Add to cart")`; then the first one that finds the element among others is used with `Nth`; and last, the element's CSS path. An element that has already left its page when its locator is chosen, as a link does once its click navigates, gets the first locator of the list, unconfirmed.
 
 `--test-id-attribute`, or `DramaturgeOptions.TestIdAttribute`, names the attribute `GetByTestId` reads, and the generated code sets the same attribute.
 
