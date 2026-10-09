@@ -20,7 +20,7 @@ public sealed class ToolTests : IDisposable
     [Fact]
     public async Task InstallDownloadsEachTargetAndReportsWhereItIs()
     {
-        ToolResult result = await this.RunAsync("install", "chrome", "chrome-headless-shell", "chromedriver@beta", "firefox@nightly", "geckodriver");
+        ToolResult result = await this.RunAsync("browsers", "install", "chrome", "chrome-headless-shell", "chromedriver@beta", "firefox@nightly", "geckodriver");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(
@@ -39,9 +39,9 @@ public sealed class ToolTests : IDisposable
     [Fact]
     public async Task DryRunResolvesTargetsWithoutDownloadingThem()
     {
-        await this.RunAsync("install", "firefox");
+        await this.RunAsync("browsers", "install", "firefox");
 
-        ToolResult result = await this.RunAsync("install", "--dry-run", "chrome@131", $"chrome@{Mirror.ChromeBetaVersion}", "firefox", "geckodriver", "chromedriver@131", "chrome-headless-shell@131");
+        ToolResult result = await this.RunAsync("browsers", "install", "--dry-run", "chrome@131", $"chrome@{Mirror.ChromeBetaVersion}", "firefox", "geckodriver", "chromedriver@131", "chrome-headless-shell@131");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(
@@ -70,7 +70,7 @@ public sealed class ToolTests : IDisposable
     [InlineData("geckodriver@0.35.0", "geckodriver is always its latest release")]
     public async Task InvalidTargetStopsTheInstallationBeforeAnythingIsDownloaded(string target, string expectedError)
     {
-        ToolResult result = await this.RunAsync("install", "chrome", target);
+        ToolResult result = await this.RunAsync("browsers", "install", "chrome", target);
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains(expectedError, result.Error);
@@ -81,7 +81,7 @@ public sealed class ToolTests : IDisposable
     [Fact]
     public async Task TargetThatFailsDoesNotStopTheOthers()
     {
-        ToolResult result = await this.RunAsync("install", "chrome@130.0.6723.58", "chrome@dev", "firefox@esr", "chromedriver");
+        ToolResult result = await this.RunAsync("browsers", "install", "chrome@130.0.6723.58", "chrome@dev", "firefox@esr", "chromedriver");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains("chrome@130.0.6723.58: ", result.Error);
@@ -93,9 +93,9 @@ public sealed class ToolTests : IDisposable
     [Fact]
     public async Task ListShowsEachInstallation()
     {
-        await this.RunAsync("install", "chrome", $"chrome@{Mirror.ChromeBetaVersion}", "chromedriver");
+        await this.RunAsync("browsers", "install", "chrome", $"chrome@{Mirror.ChromeBetaVersion}", "chromedriver");
 
-        ToolResult result = await this.RunAsync("list");
+        ToolResult result = await this.RunAsync("browsers", "list");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Collection(
@@ -108,7 +108,7 @@ public sealed class ToolTests : IDisposable
     [Fact]
     public async Task DownloadProgressIsReportedByQuarter()
     {
-        ToolResult result = await this.RunAsync("install", "chrome@beta");
+        ToolResult result = await this.RunAsync("browsers", "install", "chrome@beta");
 
         string[] progress = [.. result.Error.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Where(line => line.StartsWith("Downloading Chrome Beta", StringComparison.Ordinal))];
         Assert.Equal(["0%", "25%", "50%", "75%", "100%"], progress.Select(line => line[(line.LastIndexOf(' ') + 1)..]));
@@ -139,7 +139,7 @@ public sealed class ToolTests : IDisposable
         StringWriter error = new();
 
         int exitCode = await DramaturgeTool.RunAsync(
-            ["install", "chrome"],
+            ["browsers", "install", "chrome"],
             output,
             error,
             (path, progress) => new BrowserDownloadOptions()
@@ -164,12 +164,12 @@ public sealed class ToolTests : IDisposable
             return;
         }
 
-        await this.RunAsync("install", "geckodriver");
+        await this.RunAsync("browsers", "install", "geckodriver");
         string driverDirectory = this.CachePath("drivers", "geckodriver");
         File.SetUnixFileMode(driverDirectory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
         try
         {
-            ToolResult result = await this.RunAsync("clear", "geckodriver");
+            ToolResult result = await this.RunAsync("browsers", "uninstall", "geckodriver");
 
             Assert.Equal(1, result.ExitCode);
             Assert.StartsWith($"geckodriver@{Mirror.GeckoDriverVersion}: ", result.Error);
@@ -186,7 +186,7 @@ public sealed class ToolTests : IDisposable
         StringWriter output = new();
         StringWriter error = new();
 
-        int exitCode = await DramaturgeTool.RunAsync(["list", "--path", this.cache.Path], output, error, cancellationToken: TestContext.Current.CancellationToken);
+        int exitCode = await DramaturgeTool.RunAsync(["browsers", "list", "--path", this.cache.Path], output, error, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
         Assert.Equal($"No browsers or drivers are cached in {this.cache.Path}.", output.ToString().Trim());
@@ -195,11 +195,11 @@ public sealed class ToolTests : IDisposable
     [Fact]
     public async Task ClearRemovesWhatTheTargetsSelect()
     {
-        await this.RunAsync("install", "chrome", "chrome@beta", "chromedriver", "chromedriver@beta", "firefox", "geckodriver");
+        await this.RunAsync("browsers", "install", "chrome", "chrome@beta", "chromedriver", "chromedriver@beta", "firefox", "geckodriver");
 
-        ToolResult dryRun = await this.RunAsync("clear", "--dry-run", "chrome@beta", "chromedriver@131", "geckodriver");
-        ToolResult result = await this.RunAsync("clear", "chrome@beta", "chromedriver@131", "geckodriver", $"firefox@{Mirror.FirefoxVersion}");
-        ToolResult nothing = await this.RunAsync("clear", "geckodriver");
+        ToolResult dryRun = await this.RunAsync("browsers", "uninstall", "--dry-run", "chrome@beta", "chromedriver@131", "geckodriver");
+        ToolResult result = await this.RunAsync("browsers", "uninstall", "chrome@beta", "chromedriver@131", "geckodriver", $"firefox@{Mirror.FirefoxVersion}");
+        ToolResult nothing = await this.RunAsync("browsers", "uninstall", "geckodriver");
 
         Assert.Equal(["Would remove chrome@132.0.6834.57 (beta)", "Would remove chromedriver@131.0.6778.204 (driver)", "Would remove geckodriver@0.36.0 (driver)"], dryRun.OutputLines);
         Assert.Equal(0, result.ExitCode);
@@ -211,9 +211,9 @@ public sealed class ToolTests : IDisposable
     [Fact]
     public async Task ClearWithoutTargetsRemovesEverything()
     {
-        await this.RunAsync("install", "chrome", "geckodriver");
+        await this.RunAsync("browsers", "install", "chrome", "geckodriver");
 
-        ToolResult result = await this.RunAsync("clear");
+        ToolResult result = await this.RunAsync("browsers", "clear");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(2, result.OutputLines.Count);
@@ -223,9 +223,9 @@ public sealed class ToolTests : IDisposable
     [Theory]
     [InlineData("chromedriver@stable", "drivers are not cached by channel")]
     [InlineData("edge", "Microsoft Edge is never downloaded")]
-    public async Task ClearRejectsTargetsThatSelectNothingCached(string target, string expectedError)
+    public async Task UninstallRejectsTargetsThatSelectNothingCached(string target, string expectedError)
     {
-        ToolResult result = await this.RunAsync("clear", target);
+        ToolResult result = await this.RunAsync("browsers", "uninstall", target);
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains(expectedError, result.Error);
@@ -236,9 +236,9 @@ public sealed class ToolTests : IDisposable
     {
         File.WriteAllText(Path.Combine(this.cache.Path, ".layout-version"), "2");
 
-        ToolResult list = await this.RunAsync("list");
-        ToolResult clear = await this.RunAsync("clear");
-        ToolResult install = await this.RunAsync("install", "chrome");
+        ToolResult list = await this.RunAsync("browsers", "list");
+        ToolResult clear = await this.RunAsync("browsers", "clear");
+        ToolResult install = await this.RunAsync("browsers", "install", "chrome");
 
         Assert.All([list, clear, install], result => Assert.Equal(1, result.ExitCode));
         Assert.All([list, clear, install], result => Assert.Contains("layout version 2", result.Error));
@@ -248,13 +248,36 @@ public sealed class ToolTests : IDisposable
     public async Task HelpDescribesTheCommandsAndAnUnknownCommandFails()
     {
         ToolResult help = await this.RunAsync("--help");
+        ToolResult browsersHelp = await this.RunAsync("browsers", "--help");
         ToolResult unknown = await this.RunAsync("upgrade");
+        ToolResult oldInstall = await this.RunAsync("install", "chrome");
 
         Assert.Equal(0, help.ExitCode);
         Assert.Contains("dramaturge [command] [options]", help.Output);
-        Assert.Contains("install", help.Output);
-        Assert.Contains("--path", help.Output);
+        Assert.Contains("browsers", help.Output);
+        Assert.Contains("codegen", help.Output);
+        Assert.DoesNotContain("--path", help.Output);
+        Assert.Equal(0, browsersHelp.ExitCode);
+        Assert.All(["install", "list", "uninstall", "clear", "--path"], expected => Assert.Contains(expected, browsersHelp.Output));
         Assert.Equal(1, unknown.ExitCode);
+        Assert.Equal(1, oldInstall.ExitCode);
+    }
+
+    // Removing everything is its own command, so an uninstall whose targets were left off removes nothing.
+    [Fact]
+    public async Task UninstallNeedsTargetsAndClearTakesNone()
+    {
+        await this.RunAsync("browsers", "install", "geckodriver");
+
+        ToolResult uninstall = await this.RunAsync("browsers", "uninstall");
+        ToolResult clear = await this.RunAsync("browsers", "clear", "geckodriver");
+        ToolResult dryRun = await this.RunAsync("browsers", "clear", "--dry-run");
+
+        Assert.NotEqual(0, uninstall.ExitCode);
+        Assert.NotEqual(0, clear.ExitCode);
+        Assert.Equal(0, dryRun.ExitCode);
+        Assert.Single(dryRun.OutputLines, line => line.StartsWith("Would remove geckodriver", StringComparison.Ordinal));
+        Assert.Single(BrowserCache.List(this.Options(null)));
     }
 
     [Fact]
@@ -262,7 +285,7 @@ public sealed class ToolTests : IDisposable
     {
         using TemporaryDirectory otherCache = new();
 
-        ToolResult result = await this.RunAsync("install", "--path", otherCache.Path, "geckodriver");
+        ToolResult result = await this.RunAsync("browsers", "install", "--path", otherCache.Path, "geckodriver");
 
         Assert.Equal([$"geckodriver: {Path.Combine(otherCache.Path, "drivers", "geckodriver", Mirror.GeckoDriverVersion, "geckodriver")}"], result.OutputLines);
         Assert.Empty(BrowserCache.List(this.Options(null)));

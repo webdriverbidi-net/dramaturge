@@ -205,5 +205,5 @@ public abstract class PageTest(BrowserFixture fixture) : IAsyncDisposable
 Further:
 
 - Serve fixed pages and fake APIs with routes rather than a server, so tests need no network.
-- In CI, install browsers ahead with `dramaturge install chrome firefox` (`Dramaturge.Tool`) and set `DRAMATURGE_SKIP_DOWNLOAD=1`, or point `CHROME_EXECUTABLE` / `FIREFOX_EXECUTABLE` at installed browsers.
+- In CI, install browsers ahead with `dramaturge browsers install chrome firefox` (`Dramaturge.Tool`) and set `DRAMATURGE_SKIP_DOWNLOAD=1`, or point `CHROME_EXECUTABLE` / `FIREFOX_EXECUTABLE` at installed browsers.
 - Keep `Expect` timeouts short (the 5 s default) and action timeouts reasonable; a test should fail fast with the message `Expect` gives, not hang.

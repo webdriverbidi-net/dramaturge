@@ -111,12 +111,12 @@ The `dramaturge` command-line tool, from the `Dramaturge.Tool` package, installs
 
 ```bash
 dotnet tool install --global Dramaturge.Tool
-dramaturge install chrome chromedriver firefox@beta geckodriver
-dramaturge list
-dramaturge clear chrome@canary
+dramaturge browsers install chrome chromedriver firefox@beta geckodriver
+dramaturge browsers list
+dramaturge browsers uninstall chrome@canary
 ```
 
-Each target is a name (`chrome`, `chrome-headless-shell`, `firefox`, `chromedriver`, `geckodriver`, or `msedgedriver`), optionally followed by `@` and a channel (`chrome@beta`, `firefox@nightly`), a Chrome milestone (`chromedriver@131`), or a version (`firefox@134.0`). `install --dry-run` shows the version and URL each target resolves to without downloading it. The tool honors the environment variables above, and `--path` chooses another cache. With `DRAMATURGE_SKIP_DOWNLOAD` set for the test run, a test that needs a browser the tool did not install fails at once rather than downloading it. The [package README](https://www.nuget.org/packages/Dramaturge.Tool) describes every command.
+Each target is a name (`chrome`, `chrome-headless-shell`, `firefox`, `chromedriver`, `geckodriver`, or `msedgedriver`), optionally followed by `@` and a channel (`chrome@beta`, `firefox@nightly`), a Chrome milestone (`chromedriver@131`), or a version (`firefox@134.0`). `browsers install --dry-run` shows the version and URL each target resolves to without downloading it. The tool honors the environment variables above, and `--path` chooses another cache. With `DRAMATURGE_SKIP_DOWNLOAD` set for the test run, a test that needs a browser the tool did not install fails at once rather than downloading it. The [package README](https://www.nuget.org/packages/Dramaturge.Tool) describes every command.
 
 The same abilities are in the library: `BrowserLocator.ResolveDownloadAsync` and `DriverLocator.ResolveDownloadAsync` resolve what `FindBrowserAsync` and `FindDriverAsync` would download, without downloading it.
 

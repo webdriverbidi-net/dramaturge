@@ -23,8 +23,8 @@ public sealed class EnvironmentTests : IDisposable
     {
         Environment.SetEnvironmentVariable(EdgeVariableName, this.CreateEdge(Mirror.EdgeDriverVersion));
 
-        ToolResult dryRun = await this.RunAsync("install", "--dry-run", "msedgedriver");
-        ToolResult result = await this.RunAsync("install", "msedgedriver@beta");
+        ToolResult dryRun = await this.RunAsync("browsers", "install", "--dry-run", "msedgedriver");
+        ToolResult result = await this.RunAsync("browsers", "install", "msedgedriver@beta");
 
         Assert.Equal([$"msedgedriver: msedgedriver@{Mirror.EdgeDriverVersion} (to download) {this.mirror.BuildUrl("msedgedriver", Mirror.EdgeDriverVersion)}"], dryRun.OutputLines);
         Assert.Equal([$"msedgedriver@beta: {Path.Combine(this.cache.Path, "drivers", "msedgedriver", Mirror.EdgeDriverVersion, "msedgedriver")}"], result.OutputLines);
@@ -35,7 +35,7 @@ public sealed class EnvironmentTests : IDisposable
     {
         Environment.SetEnvironmentVariable(EdgeVariableName, Path.Combine(this.edge.Path, "missing"));
 
-        ToolResult result = await this.RunAsync("install", "msedgedriver");
+        ToolResult result = await this.RunAsync("browsers", "install", "msedgedriver");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains("could not be read", result.Error);
@@ -47,7 +47,7 @@ public sealed class EnvironmentTests : IDisposable
         Environment.SetEnvironmentVariable(CacheVariableName, this.cache.Path);
         StringWriter output = new();
 
-        int exitCode = await DramaturgeTool.RunAsync(["list"], output, new StringWriter(), cancellationToken: TestContext.Current.CancellationToken);
+        int exitCode = await DramaturgeTool.RunAsync(["browsers", "list"], output, new StringWriter(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
         Assert.Equal($"No browsers or drivers are cached in {this.cache.Path}.", output.ToString().Trim());
