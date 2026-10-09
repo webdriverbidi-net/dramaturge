@@ -6,6 +6,7 @@
 namespace Dramaturge;
 
 using System.Text.RegularExpressions;
+using WebDriverBiDi;
 using WebDriverBiDi.Script;
 
 /// <summary>
@@ -54,9 +55,29 @@ public sealed class LocatorAssertions
     /// <returns>A task that completes when the expectation is met.</returns>
     /// <exception cref="AmbiguousElementException">Thrown when more than one element matches.</exception>
     /// <exception cref="ExpectationFailedException">Thrown when the expectation is not met in time.</exception>
-    public Task ToBeHiddenAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+    public async Task ToBeHiddenAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.ExpectElementAsync("to be hidden", true, timeout, cancellationToken, this.ObserveVisibilityAsync(false));
+        // A browser recording code is told of the element while one matches, since by the time it is hidden it may
+        // be gone; nothing is recorded if none matches from the start.
+        Func<NodeRemoteValue, TimeBudget, Task<Observation?>> observe = this.ObserveVisibilityAsync(false);
+        long? prepared = null;
+        bool met = false;
+        try
+        {
+            await this.ExpectElementAsync("to be hidden", true, timeout, cancellationToken, async (node, budget) =>
+            {
+                prepared ??= this.isNot ? null : await this.locator.PrepareRecordedAssertionAsync(node, "assertHidden", budget).ConfigureAwait(false);
+                return await observe(node, budget).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+            met = true;
+        }
+        finally
+        {
+            if (prepared is long id)
+            {
+                await this.FinishRecordedAssertionAsync(id, met).ConfigureAwait(false);
+            }
+        }
     }
 
     /// <summary>
@@ -82,7 +103,7 @@ public sealed class LocatorAssertions
     /// <exception cref="ExpectationFailedException">Thrown when the expectation is not met in time.</exception>
     public Task ToBeEnabledAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return this.ExpectStateAsync("to be enabled", "enabled", "enabled", timeout, cancellationToken);
+        return this.ExpectStateAsync("to be enabled", "enabled", "enabled", timeout, cancellationToken, this.Assertion("assertEnabled", LocalValue.Null));
     }
 
     /// <summary>
@@ -560,6 +581,20 @@ public sealed class LocatorAssertions
         List<string> lines = [.. text.Replace("\r\n", "\n").Split('\n').Where(line => !string.IsNullOrWhiteSpace(line))];
         int indent = lines.Select(line => line.Length - line.TrimStart().Length).DefaultIfEmpty(0).Min();
         return string.Join("\n", lines.Select(line => line.Substring(indent)));
+    }
+
+    // The recording is told on a best-effort basis: a document that has gone, as by a navigation, takes its
+    // description with it, and the assertion is not recorded.
+    private async Task FinishRecordedAssertionAsync(long id, bool met)
+    {
+        DramaturgeOptions options = this.locator.Frame.Page.Browser.Group.Options;
+        try
+        {
+            await this.locator.FinishRecordedAssertionAsync(id, met, new TimeBudget(options.ExpectTimeout, options.TimeProvider, CancellationToken.None)).ConfigureAwait(false);
+        }
+        catch (WebDriverBiDiException)
+        {
+        }
     }
 
     private string Describe(string expected)

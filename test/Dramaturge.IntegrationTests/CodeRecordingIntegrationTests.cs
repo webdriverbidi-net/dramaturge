@@ -6,8 +6,10 @@
 namespace Dramaturge;
 
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Dramaturge.Browsers;
 using Dramaturge.TestUtilities;
+using WebDriverBiDi;
 using WebDriverBiDi.BrowsingContext;
 using WebDriverBiDi.Input;
 using static Dramaturge.Assertions;
@@ -362,6 +364,38 @@ public class CodeRecordingIntegrationTests
         await Expect(message).Not.ToBeHiddenAsync(cancellationToken: TestContext.Current.CancellationToken);
         await agree.UncheckAsync(cancellationToken: TestContext.Current.CancellationToken);
         await Expect(agree).Not.ToBeCheckedAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.EvaluateAsync<object?>("() => { document.getElementById('done').style.display = 'none'; }", cancellationToken: TestContext.Current.CancellationToken);
+        await Expect(page.Locate(new CssLocator("#done"))).ToBeHiddenAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        // The element is removed once the browser has answered the call that describes it to the recording: the log
+        // names each command's ID just before its content, and again with its answer.
+        TaskCompletionSource described = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        string? lastSent = null;
+        string? describing = null;
+        group.Driver.TransportConfiguration.LogLevel = WebDriverBiDiLogLevel.Trace;
+        using (group.Driver.OnLogMessage.AddObserver(e =>
+        {
+            Match sending = Regex.Match(e.Message, @"^Sending command data for command '[^']+' \(command ID: (\d+)\)");
+            if (sending.Success)
+            {
+                lastSent = sending.Groups[1].Value;
+            }
+            else if (describing is null && e.Message.Contains("recorder.prepareAssertion", StringComparison.Ordinal))
+            {
+                describing = lastSent;
+            }
+            else if (describing is not null && e.Message.StartsWith($"Received result for command 'script.callFunction' (command ID: {describing})", StringComparison.Ordinal))
+            {
+                described.TrySetResult();
+            }
+        }))
+        {
+            Task gone = Expect(page.Locate(new CssLocator("#go"))).ToBeHiddenAsync(cancellationToken: TestContext.Current.CancellationToken);
+            await described.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            await page.EvaluateAsync<object?>("() => { document.getElementById('go').remove(); }", cancellationToken: TestContext.Current.CancellationToken);
+            await gone;
+        }
+
         await recording.StopAsync(TestContext.Current.CancellationToken);
 
         // Firefox cannot look elements up by their rendered text, so the paragraph is found by its role there.
@@ -377,8 +411,11 @@ public class CodeRecordingIntegrationTests
                 "await Expect(page.GetByRole(\"list\")).ToMatchAriaSnapshotAsync(\"\"\"\n    - listitem: One\n    \"\"\");",
                 "await Expect(page).ToHaveTitleAsync(\"Recording\");",
                 $"await Expect(page).ToHaveUrlAsync(\"{url}\");",
+                "await Expect(page.GetByRole(\"button\", \"Go\")).ToBeEnabledAsync();",
                 "await page.GetByRole(\"checkbox\", \"Agree\").UncheckAsync();",
                 "await Expect(page.GetByRole(\"checkbox\", \"Agree\")).Not.ToBeCheckedAsync();",
+                "await Expect(page.Locate(new CssLocator(\"#done\"))).ToBeHiddenAsync();",
+                "await Expect(page.GetByRole(\"button\", \"Go\")).ToBeHiddenAsync();",
             ],
             statements);
     }

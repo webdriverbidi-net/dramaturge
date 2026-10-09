@@ -167,7 +167,7 @@ dramaturge expect url https://example.com/welcome --timeout 30
 dramaturge expect text "Welcome, Ada"
 ```
 
-`hidden` and `enabled` are not recorded in the code, so a test from the session does not wait for them. When an expectation fails, what the page had instead follows the error between the page content lines, or, with `--json`, is the error's `details`. There is no `wait` command; `expect` waits.
+Every condition but page-level `text` is recorded with a locator for its element; `hidden` chooses the locator when it starts waiting, while the element is still there, since by the time it is met the element may be gone. When an expectation fails, what the page had instead follows the error between the page content lines, or, with `--json`, is the error's `details`. There is no `wait` command; `expect` waits.
 
 ### Exporting the Session as Code
 

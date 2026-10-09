@@ -181,7 +181,7 @@ A session starts as restrictive as it can be, and each opening up is an option o
 The exported code is a draft, as `codegen`'s is ([Code Generation](codegen.md)): rename the test, and replace typed values that should not be in source, such as passwords, which `--mask-passwords` writes as a read of `DRAMATURGE_PASSWORD`. Then check:
 
 - Everything the session did since it started is in it, including the agent's exploring. `code --reset` writes the code, then starts the recording over, so that the code comes from what is done next; `open` the page the test starts from right after it, as a new session would.
-- `expect` conditions of the kinds `hidden` and `enabled`, and hovering, are not recorded, so the test does not wait for, or do, those steps.
+- Hovering is not recorded, so the test does not do it.
 - The code of a session started with `--dialogs accept` sets its browser to accept dialogs too: a program through its launcher, and a test class by overriding `ConfigureLauncher`, which gives the class a browser of its own.
 - `expect text` on the page as a whole is recorded as an expectation on the page's `body`, which counts hidden text too.
 
