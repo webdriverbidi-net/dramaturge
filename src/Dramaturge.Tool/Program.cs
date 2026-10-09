@@ -18,5 +18,5 @@ internal static class Program
     /// </summary>
     /// <param name="args">The command-line arguments.</param>
     /// <returns>A task whose result is the exit code.</returns>
-    public static Task<int> Main(string[] args) => DramaturgeTool.RunAsync(args, Console.Out, Console.Error);
+    public static Task<int> Main(string[] args) => DramaturgeTool.RunAsync(args, Console.Out, Console.Error, outputIsTerminal: !Console.IsOutputRedirected);
 }

@@ -79,11 +79,19 @@ internal static class Codegen
                 return 1;
             }
 
+            LiveCodeWriter writer = new(output, settings.OutputIsTerminal);
             recording.OnStatement.AddObserver(e =>
             {
-                WriteCode(output, e.Statement);
+                writer.WriteSettled(e.Statement);
                 Save(recording, settings.OutputPath, error);
             });
+            recording.OnPendingStatement.AddObserver(e =>
+            {
+                writer.WriteOpen(e.Statement);
+                Save(recording, settings.OutputPath, error);
+            });
+
+            // A pick settles the open statement first, so nothing open is shown when it is written.
             recording.OnLocatorPicked.AddObserver(e => error.WriteLine($"Picked: {e.Code}"));
             if (settings.Url is not null)
             {
@@ -96,7 +104,7 @@ internal static class Codegen
             if (settings.OutputPath is null)
             {
                 output.WriteLine();
-                WriteCode(output, code);
+                LiveCodeWriter.WriteCode(output, code);
             }
             else if (Save(recording, settings.OutputPath, error))
             {
@@ -104,15 +112,6 @@ internal static class Codegen
             }
 
             return 0;
-        }
-    }
-
-    // Code is written with the console's line endings, not the "\n" it is generated with.
-    private static void WriteCode(TextWriter output, string code)
-    {
-        foreach (string line in code.TrimEnd('\n').Split('\n'))
-        {
-            output.WriteLine(line);
         }
     }
 

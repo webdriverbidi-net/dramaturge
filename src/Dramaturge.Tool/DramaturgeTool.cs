@@ -33,9 +33,10 @@ public static class DramaturgeTool
     /// Gives the launcher of the browser codegen records in, from the one the command configures, or
     /// <see langword="null"/> for that one.
     /// </param>
+    /// <param name="outputIsTerminal">A value indicating whether the output is a terminal, on which codegen shows the statement still open.</param>
     /// <param name="cancellationToken">A token that cancels the command.</param>
     /// <returns>A task whose result is the exit code: 0 on success, and 1 if anything failed.</returns>
-    public static Task<int> RunAsync(string[] args, TextWriter output, TextWriter error, Func<string?, IProgress<BrowserDownloadProgress>, BrowserDownloadOptions>? createDownloadOptions = null, Func<BrowserLauncherBuilder, BrowserLauncherBuilder>? configureLauncher = null, CancellationToken cancellationToken = default)
+    public static Task<int> RunAsync(string[] args, TextWriter output, TextWriter error, Func<string?, IProgress<BrowserDownloadProgress>, BrowserDownloadOptions>? createDownloadOptions = null, Func<BrowserLauncherBuilder, BrowserLauncherBuilder>? configureLauncher = null, bool outputIsTerminal = false, CancellationToken cancellationToken = default)
     {
         createDownloadOptions ??= CreateDefaultDownloadOptions;
         configureLauncher ??= builder => builder;
@@ -93,7 +94,8 @@ public static class DramaturgeTool
                 parseResult.GetValue(codegenBrowser),
                 parseResult.GetValue(codegenChannel),
                 parseResult.GetValue(codegenTestId),
-                parseResult.GetValue(codegenOutput)),
+                parseResult.GetValue(codegenOutput),
+                outputIsTerminal),
             createDownloadOptions(parseResult.GetValue(pathOption), progress),
             configureLauncher,
             output,
