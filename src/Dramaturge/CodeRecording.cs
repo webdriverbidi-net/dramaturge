@@ -22,6 +22,7 @@ public sealed class CodeRecording : IAsyncDisposable
     private readonly Browser browser;
     private readonly CodeTarget target;
     private readonly bool showToolbar;
+    private readonly bool maskPasswords;
     private readonly string channelId = $"dramaturge-code-{Guid.NewGuid():N}";
     private readonly object lockObject = new();
     private readonly List<IDisposable> observers = [];
@@ -54,6 +55,7 @@ public sealed class CodeRecording : IAsyncDisposable
         this.browser = browser;
         this.target = options.Target;
         this.showToolbar = options.ShowToolbar;
+        this.maskPasswords = options.MaskPasswords;
     }
 
     /// <summary>
@@ -259,16 +261,25 @@ public sealed class CodeRecording : IAsyncDisposable
         return false;
     }
 
+    private static bool IsPasswordField(JsonElement facts)
+    {
+        return facts.TryGetProperty("tagName", out JsonElement tagName) && tagName.GetString() == "input"
+            && facts.TryGetProperty("type", out JsonElement type) && type.ValueKind == JsonValueKind.String && string.Equals(type.GetString()!.Trim(), "password", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string[] LocatorNamespaces(string locator) => locator.Contains("new CssLocator(") ? [CodeWriter.BrowsingContextNamespace] : [];
 
     private static string[] Strings(JsonElement array) => [.. array.EnumerateArray().Select(item => item.GetString()!)];
 
     private static string Capitalize(string name) => char.ToUpperInvariant(name[0]) + name.Substring(1);
 
-    // A step for an action, or null for an action the recording does not know.
-    private static RecordedStep? CreateStep(JsonElement action, string locator)
+    // A step for an action, or null for an action the recording does not know. A password field's value is written as
+    // the masked password when passwords are masked.
+    private static RecordedStep? CreateStep(JsonElement action, string locator, bool maskPasswords)
     {
-        string[] locatorNamespaces = LocatorNamespaces(locator);
+        bool masked = maskPasswords && IsPasswordField(action.GetProperty("target"));
+        string Value(string property) => masked ? CodeWriter.MaskedPassword : CodeWriter.Literal(action.GetProperty(property).GetString()!);
+        string[] locatorNamespaces = masked ? [.. LocatorNamespaces(locator), CodeWriter.SystemNamespace] : LocatorNamespaces(locator);
         string[] assertionNamespaces = [.. locatorNamespaces, CodeWriter.AssertionsNamespace];
         RecordedStep Action(string call, IReadOnlyList<string> namespaces, string? mergeKey = null, int clickCount = 0) => new($"await {locator}.{call};", namespaces, mergeKey, clickCount) { Call = $"{locator}.{call}" };
         RecordedStep Assertion(string call) => new($"await Expect({locator}).{call};", assertionNamespaces, SettlesAtOnce: true);
@@ -291,7 +302,7 @@ public sealed class CodeRecording : IAsyncDisposable
             case "uncheck":
                 return Action("UncheckAsync()", locatorNamespaces);
             case "fill":
-                return Action($"FillAsync({CodeWriter.Literal(action.GetProperty("value").GetString()!)})", locatorNamespaces, $"fill {locator}");
+                return Action($"FillAsync({Value("value")})", locatorNamespaces, $"fill {locator}");
             case "press":
                 string pressed = action.GetProperty("key").GetString()!;
                 string? key = CodeWriter.Key(pressed);
@@ -311,7 +322,7 @@ public sealed class CodeRecording : IAsyncDisposable
             case "assertText":
                 return Assertion($"ToContainTextAsync({CodeWriter.Literal(action.GetProperty("text").GetString()!)})");
             case "assertValue":
-                return Assertion($"ToHaveValueAsync({CodeWriter.Literal(action.GetProperty("value").GetString()!)})");
+                return Assertion($"ToHaveValueAsync({Value("value")})");
             case "assertChecked":
                 return Assertion(action.GetProperty("checked").GetBoolean() ? "ToBeCheckedAsync()" : "Not.ToBeCheckedAsync()");
             case "assertSnapshot":
@@ -437,7 +448,7 @@ public sealed class CodeRecording : IAsyncDisposable
                     picked = new LocatorPickedEventArgs(frame.Page, found.Locator, locator);
                     break;
                 default:
-                    if (CreateStep(message, locator) is RecordedStep created)
+                    if (CreateStep(message, locator, this.maskPasswords) is RecordedStep created)
                     {
                         RecordedStep step = created with { Page = frame.Page, PageVariable = pageVariable, Number = ++this.stepCount };
                         if (step.SettlesAtOnce || this.pending is null || !step.Replaces(this.pending))

@@ -423,6 +423,28 @@ public class CodeRecordingIntegrationTests
         Assert.Contains("await page.GetByRole(\"button\", \"Go\").ClickAsync();\nawait page.ReloadAsync();\nawait page.GetByRole(\"button\", \"Done\").ClickAsync();\n", code);
     }
 
+    [Theory]
+    [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
+    public async Task PasswordsAreMaskedWhenAskedFor(BrowserKind browserKind)
+    {
+        await using TestPageServer server = await TestPageServer.StartAsync();
+        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.NavigateAsync(server.UrlFor("recording-library.html"), cancellationToken: TestContext.Current.CancellationToken);
+        CodeRecording recording = await group.DefaultBrowser.RecordCodeAsync(new CodeRecordingOptions() { MaskPasswords = true }, TestContext.Current.CancellationToken);
+        ElementLocator password = page.Locate(new CssLocator("#password"));
+
+        await password.FillAsync("s3cret", cancellationToken: TestContext.Current.CancellationToken);
+        await Expect(password).ToHaveValueAsync("s3cret", cancellationToken: TestContext.Current.CancellationToken);
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        // ARIA gives a password field no role; Chrome's accessibility lookup finds it as a text box anyway.
+        string field = browserKind == BrowserKind.Chrome ? "page.GetByRole(\"textbox\", \"Password\")" : "page.GetByLabel(\"Password\")";
+        const string Masked = "Environment.GetEnvironmentVariable(\"DRAMATURGE_PASSWORD\") ?? \"\"";
+        Assert.Contains($"await {field}.FillAsync({Masked});\nawait Expect({field}).ToHaveValueAsync({Masked});\n", code);
+        Assert.DoesNotContain("s3cret", code);
+    }
+
     private static async Task<ToolbarBox> GetToolbarBoxAsync(Page page)
     {
         string json = await page.EvaluateAsync<string>("() => JSON.stringify(document.querySelector('dramaturge-toolbar').getBoundingClientRect())", cancellationToken: TestContext.Current.CancellationToken);

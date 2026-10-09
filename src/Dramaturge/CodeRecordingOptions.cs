@@ -21,4 +21,11 @@ public sealed class CodeRecordingOptions
     /// added from the page. The default is <see langword="true"/>.
     /// </summary>
     public bool ShowToolbar { get; init; } = true;
+
+    /// <summary>
+    /// Gets a value indicating whether a value typed into a password field, or expected of one, is written as a read
+    /// of the <c>DRAMATURGE_PASSWORD</c> environment variable instead of as typed. The default is
+    /// <see langword="false"/>: the value is written as typed.
+    /// </summary>
+    public bool MaskPasswords { get; init; }
 }

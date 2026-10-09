@@ -86,7 +86,8 @@ public static class DramaturgeTool
         Option<string?> codegenChannel = new("--channel") { Description = "The browser's release channel, as install names it: stable (the default), beta, dev, and canary for Chrome and Edge, or nightly and esr for Firefox." };
         Option<string?> codegenTestId = new("--test-id-attribute") { Description = "The attribute test IDs are read from. Defaults to data-testid." };
         Option<string?> codegenOutput = new("--output", "-o") { Description = "A file to keep the whole code in as it is recorded." };
-        Command codegen = new("codegen", "Record the actions you take in a browser as C#, until you close the browser or press Ctrl+C.") { codegenUrl, codegenTarget, codegenBrowser, codegenChannel, codegenTestId, codegenOutput };
+        Option<bool> codegenMaskPasswords = new("--mask-passwords") { Description = "Write values typed into, or expected of, password fields as a read of the DRAMATURGE_PASSWORD environment variable." };
+        Command codegen = new("codegen", "Record the actions you take in a browser as C#, until you close the browser or press Ctrl+C.") { codegenUrl, codegenTarget, codegenBrowser, codegenChannel, codegenTestId, codegenOutput, codegenMaskPasswords };
         codegen.SetAction((parseResult, token) => Codegen.RunAsync(
             new CodegenSettings(
                 parseResult.GetValue(codegenUrl),
@@ -95,6 +96,7 @@ public static class DramaturgeTool
                 parseResult.GetValue(codegenChannel),
                 parseResult.GetValue(codegenTestId),
                 parseResult.GetValue(codegenOutput),
+                parseResult.GetValue(codegenMaskPasswords),
                 outputIsTerminal),
             createDownloadOptions(parseResult.GetValue(pathOption), progress),
             configureLauncher,

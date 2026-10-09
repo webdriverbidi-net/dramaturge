@@ -65,6 +65,44 @@ public class CodeRecordingTests
         Assert.Equal(code, recording.Code);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PasswordFieldValuesAreMaskedWhenAskedFor(bool maskPasswords)
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(maskPasswords ? new CodeRecordingOptions() { MaskPasswords = true } : null, TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+        JsonObject Field(string kind, string cssPath, string tagName, string? type, string value)
+        {
+            JsonObject message = Action(kind, cssPath, new JsonField("value", value));
+            message["target"]!["tagName"] = tagName;
+            message["target"]!["type"] = type;
+            return message;
+        }
+
+        await SendAsync(driver, session, channel, page.Id, Field("fill", "#password", "input", " Password ", "s3cret"));
+        await SendAsync(driver, session, channel, page.Id, Field("assertValue", "#password", "input", "password", "s3cret"));
+        await SendAsync(driver, session, channel, page.Id, Field("fill", "#user", "input", "text", "ada"));
+        await SendAsync(driver, session, channel, page.Id, Field("fill", "#plain", "input", null, "plain"));
+        await SendAsync(driver, session, channel, page.Id, Field("fill", "#editor", "div", "password", "notes"));
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        string password = maskPasswords ? "Environment.GetEnvironmentVariable(\"DRAMATURGE_PASSWORD\") ?? \"\"" : "\"s3cret\"";
+        Assert.Equal(
+            [
+                $"await page.Locate(new CssLocator(\"#password\")).FillAsync({password});",
+                $"await Expect(page.Locate(new CssLocator(\"#password\"))).ToHaveValueAsync({password});",
+                "await page.Locate(new CssLocator(\"#user\")).FillAsync(\"ada\");",
+                "await page.Locate(new CssLocator(\"#plain\")).FillAsync(\"plain\");",
+                "await page.Locate(new CssLocator(\"#editor\")).FillAsync(\"notes\");",
+            ],
+            Statements(code));
+        Assert.Equal(maskPasswords, code.Contains("using System;\n"));
+        Assert.Equal(!maskPasswords, code.Contains("s3cret"));
+    }
+
     [Fact]
     public async Task StatementSettlesAtTheNextActionOrTheStop()
     {
