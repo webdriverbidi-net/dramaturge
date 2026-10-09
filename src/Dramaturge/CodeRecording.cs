@@ -62,19 +62,7 @@ public sealed class CodeRecording : IAsyncDisposable
     /// Gets the whole file for the recording's target, built from the statements settled so far and the one still
     /// open, as it is now.
     /// </summary>
-    public string Code
-    {
-        get
-        {
-            lock (this.lockObject)
-            {
-                BrowserGroup group = this.browser.Group;
-                return this.pending is RecordedStep open
-                    ? CodeWriter.File(this.target, group.BrowserName, group.Options.TestIdAttribute, [.. this.statements, open.Text], this.namespaces.Union(open.Namespaces))
-                    : CodeWriter.File(this.target, group.BrowserName, group.Options.TestIdAttribute, this.statements, this.namespaces);
-            }
-        }
-    }
+    public string Code => this.Write(this.target);
 
     /// <summary>
     /// Gets an event raised with each statement once it settles, in order.
@@ -92,6 +80,25 @@ public sealed class CodeRecording : IAsyncDisposable
     /// Gets an event raised with each element the user picks with the toolbar's Pick locator.
     /// </summary>
     public ObservableEvent<LocatorPickedEventArgs> OnLocatorPicked => this.onLocatorPicked;
+
+    /// <summary>
+    /// Gets the whole file for a target, which can differ from the recording's, once what the browser has reported so
+    /// far is recorded: the statements settled, and the one still open.
+    /// </summary>
+    /// <param name="target">The target.</param>
+    /// <returns>The file.</returns>
+    /// <remarks>Each report is recorded within the recording's own time limits, as when it stops.</remarks>
+    public async Task<string> GetCodeAsync(CodeTarget target)
+    {
+        Task processed;
+        lock (this.lockObject)
+        {
+            processed = this.processing;
+        }
+
+        await processed.ConfigureAwait(false);
+        return this.Write(target);
+    }
 
     /// <summary>
     /// Ends the recording: settles the last statement, and stops recording in the browser's documents. Stopping
@@ -330,6 +337,18 @@ public sealed class CodeRecording : IAsyncDisposable
                 return Assertion($"ToMatchAriaSnapshotAsync({CodeWriter.RawLiteral(action.GetProperty("snapshot").GetString()!)})");
             default:
                 return null;
+        }
+    }
+
+    // The whole file for a target, from the statements settled so far and the one still open.
+    private string Write(CodeTarget target)
+    {
+        lock (this.lockObject)
+        {
+            BrowserGroup group = this.browser.Group;
+            return this.pending is RecordedStep open
+                ? CodeWriter.File(target, group.BrowserName, group.Options.TestIdAttribute, [.. this.statements, open.Text], this.namespaces.Union(open.Namespaces))
+                : CodeWriter.File(target, group.BrowserName, group.Options.TestIdAttribute, this.statements, this.namespaces);
         }
     }
 

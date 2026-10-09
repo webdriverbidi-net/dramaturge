@@ -90,7 +90,7 @@ internal sealed class SessionDaemon
                 CodeRecording recording = await browser.RecordCodeAsync(new CodeRecordingOptions() { ShowToolbar = false, MaskPasswords = settings.MaskPasswords }, stopping.Token).ConfigureAwait(false);
                 await using (recording.ConfigureAwait(false))
                 {
-                    using SessionBrowser session = await SessionBrowser.StartAsync(browser, settings, stopping.Token).ConfigureAwait(false);
+                    using SessionBrowser session = await SessionBrowser.StartAsync(browser, recording, settings, stopping.Token).ConfigureAwait(false);
                     string socketPath = SessionPaths.SocketPath(directory, settings.Name);
                     File.Delete(socketPath);
                     using Socket listener = new(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);

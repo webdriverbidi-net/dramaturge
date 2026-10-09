@@ -5,6 +5,8 @@
 
 namespace Dramaturge.Tool.Sessions;
 
+using System.Text.Json;
+
 /// <summary>
 /// Writes what a command produced, as text or, with --json, as one line of JSON, and gives its exit code: 0 on
 /// success, 2 for arguments that cannot be used, 3 when the session named is not running, and 1 otherwise.
@@ -48,6 +50,15 @@ internal static class CommandOutput
             foreach (string line in result.Text)
             {
                 output.WriteLine(line);
+            }
+
+            // Notes go apart from the result, which can be a file's content.
+            if (result.Result is JsonElement answer && answer.TryGetProperty("notes", out JsonElement notes))
+            {
+                foreach (JsonElement note in notes.EnumerateArray())
+                {
+                    error.WriteLine($"note: {note.GetString()}");
+                }
             }
         }
 

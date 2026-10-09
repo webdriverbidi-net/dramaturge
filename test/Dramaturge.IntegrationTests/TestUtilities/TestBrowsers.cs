@@ -29,22 +29,25 @@ public static class TestBrowsers
     /// <returns>The launched group.</returns>
     public static Task<BrowserGroup> LaunchAsync(BrowserKind browser, DramaturgeOptions? options = null, Action<BrowserLauncherBuilder>? configure = null)
     {
+        BrowserLauncherBuilder builder = Locate(BrowserLauncher.Configure(browser), browser);
+        configure?.Invoke(builder);
+        return BrowserGroup.LaunchAsync(builder, options, TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>
+    /// Points a launcher at a browser's executable, skipping the test if the browser is not configured in CI.
+    /// </summary>
+    /// <param name="builder">The launcher.</param>
+    /// <param name="browser">The browser.</param>
+    /// <returns>The launcher.</returns>
+    public static BrowserLauncherBuilder Locate(BrowserLauncherBuilder builder, BrowserKind browser)
+    {
         string variableName = browser == BrowserKind.Chrome ? "CHROME_EXECUTABLE" : "FIREFOX_EXECUTABLE";
         string? executablePath = Environment.GetEnvironmentVariable(variableName);
         bool isCI = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CI"));
         Assert.SkipWhen(isCI && string.IsNullOrEmpty(executablePath), $"{variableName} is not set.");
-        BrowserLauncherBuilder builder = BrowserLauncher.Configure(browser).WithReleaseChannel(BrowserReleaseChannel.Alpha);
-        if (string.IsNullOrEmpty(executablePath))
-        {
-            builder.AtAutomaticallyDownloadedLocation();
-        }
-        else
-        {
-            builder.AtLocation(executablePath);
-        }
-
-        configure?.Invoke(builder);
-        return BrowserGroup.LaunchAsync(builder, options, TestContext.Current.CancellationToken);
+        builder.WithReleaseChannel(BrowserReleaseChannel.Alpha);
+        return string.IsNullOrEmpty(executablePath) ? builder.AtAutomaticallyDownloadedLocation() : builder.AtLocation(executablePath);
     }
 
     /// <summary>

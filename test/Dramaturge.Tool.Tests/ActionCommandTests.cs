@@ -553,7 +553,44 @@ public sealed partial class ActionCommandTests : IAsyncLifetime
         Assert.Equal(2, template.ExitCode);
     }
 
+    // The code is the file alone, so that it can be redirected to one; notes go to the error output.
+    [Fact]
+    public async Task CodeShowsTheSessionsRecording()
+    {
+        await this.sessions.RunAsync("session", "start", "--dialogs", "accept");
+        await this.sessions.RunAsync("open", "https://example.com/", "--no-snapshot");
+        string path = Path.Combine(this.sessions.Directory, "Recorded.cs");
+
+        ToolResult program = await this.sessions.RunAsync("code");
+        ToolResult test = await this.sessions.RunAsync("code", "--target", "nunit", "-o", path);
+        ToolResult json = await this.sessions.RunAsync("code", "--target", "xunit", "--json");
+        ToolResult unwritable = await this.sessions.RunAsync("code", "-o", Path.Combine(this.sessions.Directory, "missing", "Recorded.cs"));
+
+        Assert.Equal(0, program.ExitCode);
+        Assert.Equal("using Dramaturge;", program.OutputLines[0]);
+        Assert.Equal("await page.NavigateAsync(\"https://example.com/\");", program.OutputLines[^1]);
+        Assert.Equal("note: The session accepted dialogs, but the code does not answer them, so they are dismissed when it runs; set the browser's unhandledPromptBehavior to accept them.", program.Error.Trim());
+        Assert.Equal([$"Wrote the code for nunit to {path}."], test.OutputLines);
+        Assert.Contains("[Test]", File.ReadAllText(path));
+        Assert.Contains("\"target\":\"xunit\",\"code\":\"using Dramaturge;", json.Output);
+        Assert.Contains("\"notes\":[\"The session accepted dialogs", json.Output);
+        Assert.Equal(1, unwritable.ExitCode);
+        Assert.StartsWith("error[write-failed]: The code could not be written to ", unwritable.Error);
+    }
+
+    [Fact]
+    public async Task CodeOfASessionThatDismissesDialogsHasNoNotes()
+    {
+        await this.sessions.RunAsync("session", "start");
+
+        ToolResult code = await this.sessions.RunAsync("code", "--json");
+
+        Assert.Contains("\"notes\":[]", code.Output);
+        Assert.Equal(string.Empty, code.Error);
+    }
+
     [Theory]
+    [InlineData("{\"command\":\"code\",\"arguments\":{\"target\":\"cobol\"}}")]
     [InlineData("{\"command\":\"expect\",\"arguments\":{}}")]
     [InlineData("{\"command\":\"click\",\"arguments\":{}}")]
     [InlineData("{\"command\":\"fill\",\"arguments\":{\"ref\":\"e2\"}}")]
