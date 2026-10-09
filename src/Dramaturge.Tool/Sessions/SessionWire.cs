@@ -102,8 +102,13 @@ internal static class SessionWire
 
     private static Dictionary<string, object?> ErrorMessage(SessionError error)
     {
-        Dictionary<string, object?> details = new() { ["code"] = error.Code, ["message"] = error.Message, ["hint"] = error.Hint };
-        return new Dictionary<string, object?>() { ["ok"] = false, ["error"] = details };
+        Dictionary<string, object?> described = new() { ["code"] = error.Code, ["message"] = error.Message, ["hint"] = error.Hint };
+        if (error.Details is not null)
+        {
+            described["details"] = error.Details;
+        }
+
+        return new Dictionary<string, object?>() { ["ok"] = false, ["error"] = described };
     }
 
     private static async Task WriteLineAsync(Stream stream, IReadOnlyDictionary<string, object?> message, CancellationToken cancellationToken)

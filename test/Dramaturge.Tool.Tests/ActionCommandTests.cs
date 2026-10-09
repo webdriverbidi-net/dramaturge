@@ -21,11 +21,16 @@ public sealed partial class ActionCommandTests : IAsyncLifetime
     private InProcessSessions sessions = null!;
     private string snapshot = Form;
     private string checkedState = "checked";
+    private bool visible = true;
 
     public async ValueTask InitializeAsync()
     {
         this.sessions = await InProcessSessions.StartAsync();
-        this.sessions.OnConnect = session => session.RemoteEnd.AnswerWith("script.callFunction", this.AnswerScript);
+        this.sessions.OnConnect = session =>
+        {
+            session.RemoteEnd.AnswerWith("script.callFunction", this.AnswerScript);
+            session.RemoteEnd.AnswerWith("browsingContext.locateNodes", _ => new JsonObject() { ["nodes"] = new JsonArray(Element("body-1")) });
+        };
     }
 
     public ValueTask DisposeAsync() => this.sessions.DisposeAsync();
@@ -436,7 +441,120 @@ public sealed partial class ActionCommandTests : IAsyncLifetime
         Assert.Equal(expected, (string?)newSession["params"]!["capabilities"]!["alwaysMatch"]!["unhandledPromptBehavior"]!["default"]);
     }
 
+    [Fact]
+    public async Task ExpectSaysWhichConditionPassed()
+    {
+        await this.StartWithSnapshotAsync();
+        this.checkedState = "unchecked";
+
+        string[][] conditions =
+        [
+            ["url", "about:blank"],
+            ["title", "Fake title"],
+            ["text", "Welcome"],
+            ["e1", "visible"],
+            ["e1", "enabled"],
+            ["e3", "unchecked"],
+            ["e1", "text", "Form"],
+            ["e2", "value", "Ada"],
+            ["e1", "snapshot", "- heading \"Form\""],
+        ];
+        List<string> said = [];
+        foreach (string[] condition in conditions)
+        {
+            ToolResult result = await this.sessions.RunAsync(["expect", .. condition]);
+            said.Add(result.OutputLines.Count > 0 ? result.OutputLines[0] : result.Error.Trim());
+        }
+
+        this.checkedState = "checked";
+        ToolResult isChecked = await this.sessions.RunAsync("expect", "e3", "checked");
+        this.visible = false;
+        ToolResult hidden = await this.sessions.RunAsync("expect", "e1", "hidden");
+
+        Assert.Equal(
+            [
+                "Passed: the tab's URL is about:blank.",
+                "Passed: the tab's title is \"Fake title\".",
+                "Passed: the tab's page contains \"Welcome\".",
+                "Passed: e1 is visible.",
+                "Passed: e1 is enabled.",
+                "Passed: e3 is not checked.",
+                "Passed: e1 contains \"Form\".",
+                "Passed: e2 has the value \"Ada\".",
+                "Passed: e1 matches the snapshot given.",
+            ],
+            said);
+        Assert.Equal(["Passed: e3 is checked."], isChecked.OutputLines);
+        Assert.Equal(["Passed: e1 is hidden."], hidden.OutputLines);
+        Assert.Equal("body", (string?)this.Commands("browsingContext.locateNodes").Single()["params"]!["locator"]!["value"]);
+    }
+
+    // Without a template, the element's snapshot now is the one expected, and is shown.
+    [Fact]
+    public async Task ExpectSnapshotWithoutATemplateUsesTheElementsSnapshot()
+    {
+        await this.StartWithSnapshotAsync();
+
+        ToolResult snapshot = await this.sessions.RunAsync("expect", "e1", "snapshot");
+
+        Assert.Equal(["Passed: e1 matches its snapshot.", Start, .. Form.Split('\n'), End], snapshot.OutputLines);
+        Assert.Contains("false", this.Commands("script.callFunction").Last(command => ((string)command["params"]!["functionDeclaration"]!).Contains("snapshots.snapshot"))["params"]!["arguments"]!.ToJsonString());
+    }
+
+    // What the page showed is page content, kept apart from the tool's own words.
+    [Fact]
+    public async Task ExpectThatIsNotMetShowsWhatThePageHad()
+    {
+        await this.StartWithSnapshotAsync();
+
+        ToolResult text = await this.sessions.RunAsync("expect", "e1", "text", "Nope", "--timeout", "1");
+        ToolResult json = await this.sessions.RunAsync("expect", "title", "Other", "--timeout", "2", "--json");
+
+        Assert.Equal(1, text.ExitCode);
+        Assert.Equal(["error[expectation-failed]: Not met within 1 second: e1 contains \"Nope\".", Start, "Expected ref e1 to contain text \"Nope\"; received \"Form Welcome\" after 1 seconds.", End], text.Error.Trim().Split(Environment.NewLine));
+        Assert.Equal(1, json.ExitCode);
+        Assert.Contains("\"code\":\"expectation-failed\",\"message\":\"Not met within 2 seconds: the tab's title is \\\"Other\\\".\",\"hint\":null,\"details\":\"Expected the page to have title", json.Output);
+    }
+
+    // A snapshot of an element that cannot be found in time is not met, as any other expectation.
+    [Fact]
+    public async Task ExpectSnapshotOfAnElementThatIsGoneIsNotMet()
+    {
+        await this.StartWithSnapshotAsync();
+        this.Session().RemoteEnd.AnswerWith("script.callFunction", parameters => ((string)parameters["functionDeclaration"]!).Contains("isConnected") ? Success(new JsonObject() { ["type"] = "null" }) : this.AnswerScript(parameters));
+
+        ToolResult snapshot = await this.sessions.RunAsync("expect", "e1", "snapshot", "--timeout", "1");
+
+        Assert.Equal(1, snapshot.ExitCode);
+        Assert.StartsWith("error[expectation-failed]: Not met within 1 second: e1 matches its snapshot.", snapshot.Error);
+    }
+
+    [Fact]
+    public async Task ExpectThatCannotBeUsedSaysWhy()
+    {
+        ToolResult wait = await this.sessions.RunAsync("wait", "e1", "visible");
+        await this.sessions.RunAsync("session", "start");
+        ToolResult noTab = await this.ExpectWithNoTabAsync();
+        await this.sessions.RunAsync("open", "about:blank");
+
+        ToolResult bogus = await this.sessions.RunAsync("expect", "e1", "bogus");
+        ToolResult tooLong = await this.sessions.RunAsync("expect", "e1", "visible", "now");
+        ToolResult zero = await this.sessions.RunAsync("expect", "e1", "visible", "--timeout", "0");
+        ToolResult unknown = await this.sessions.RunAsync("expect", "e9", "visible");
+        ToolResult template = await this.sessions.RunAsync("expect", "e1", "snapshot", "- heading not valid");
+
+        Assert.Equal(2, wait.ExitCode);
+        Assert.EndsWith("— To wait until a condition is met, use 'dramaturge expect'.", wait.Error.Trim());
+        Assert.StartsWith("error[no-tab]", noTab.Error);
+        Assert.Equal("error[usage]: 'e1 bogus' is not a condition, such as 'e5 visible', 'e5 text Saved', or 'url https://example.com/'. — Run 'dramaturge expect --help' for the conditions.", bogus.Error.Trim());
+        Assert.Equal(2, tooLong.ExitCode);
+        Assert.Equal("error[usage]: --timeout must be at least 1 second.", zero.Error.Trim());
+        Assert.StartsWith("error[unknown-ref]", unknown.Error);
+        Assert.Equal(2, template.ExitCode);
+    }
+
     [Theory]
+    [InlineData("{\"command\":\"expect\",\"arguments\":{}}")]
     [InlineData("{\"command\":\"click\",\"arguments\":{}}")]
     [InlineData("{\"command\":\"fill\",\"arguments\":{\"ref\":\"e2\"}}")]
     [InlineData("{\"command\":\"press\",\"arguments\":{\"ref\":\"e2\"}}")]
@@ -519,7 +637,12 @@ public sealed partial class ActionCommandTests : IAsyncLifetime
             : function.Contains("isConnected") ? Element((string)parameters["arguments"]![0]!["sharedId"]!)
             : function.Contains("isInteractionReady") ? Readiness()
             : function.Contains("queryElementStates") ? new JsonObject() { ["type"] = "object", ["value"] = new JsonArray(new JsonArray("status", Text("success"))) }
-            : function.Contains("queryElementState(") ? new JsonObject() { ["type"] = "object", ["value"] = new JsonArray(new JsonArray("received", Text(this.checkedState)), new JsonArray("isRadio", new JsonObject() { ["type"] = "boolean", ["value"] = false })) }
+            : function.Contains("queryElementState(") ? new JsonObject() { ["type"] = "object", ["value"] = new JsonArray(new JsonArray("received", Text(function.Contains("'enabled'") ? "enabled" : this.checkedState)), new JsonArray("isRadio", new JsonObject() { ["type"] = "boolean", ["value"] = false })) }
+            : function.Contains("isElementVisible") ? new JsonObject() { ["type"] = "boolean", ["value"] = this.visible }
+            : function.Contains("readTexts") ? new JsonObject() { ["type"] = "array", ["value"] = new JsonArray(Text("Form Welcome")) }
+            : function.Contains("readValue") ? Text("Ada")
+            : function.Contains("snapshots.validate") && ((string?)parameters["arguments"]![0]!["value"])!.Contains("not valid") ? Text("The template is not valid.")
+            : function.Contains("snapshots.match") ? new JsonObject() { ["type"] = "object", ["value"] = new JsonArray(new JsonArray("matches", new JsonObject() { ["type"] = "boolean", ["value"] = true }), new JsonArray("actual", Text(this.snapshot))) }
             : function.Contains("selectText") ? new JsonObject() { ["type"] = "boolean", ["value"] = true }
             : new JsonObject() { ["type"] = "undefined" };
         return new FakeResponse(new JsonObject() { ["type"] = "success", ["result"] = value, ["realm"] = "realm-1" });
@@ -530,6 +653,13 @@ public sealed partial class ActionCommandTests : IAsyncLifetime
         static JsonObject Number(double value) => new() { ["type"] = "number", ["value"] = value };
         JsonObject offset = new() { ["type"] = "object", ["value"] = new JsonArray(new JsonArray("x", Number(5)), new JsonArray("y", Number(5))) };
         return new JsonObject() { ["type"] = "object", ["value"] = new JsonArray(new JsonArray("status", new JsonObject() { ["type"] = "string", ["value"] = "ready" }), new JsonArray("interactionOffset", offset)) };
+    }
+
+    private async Task<ToolResult> ExpectWithNoTabAsync()
+    {
+        await this.Session().RemoteEnd.RaiseEventAsync("browsingContext.contextDestroyed", new JsonObject() { ["context"] = this.Session().Contexts[0].Id, ["clientWindow"] = "window-1", ["url"] = "about:blank", ["userContext"] = "default", ["children"] = null, ["originalOpener"] = null });
+        await this.sessions.RunAsync("tabs");
+        return await this.sessions.RunAsync("expect", "url", "about:blank");
     }
 
     private async Task StartWithSnapshotAsync(params string[] startArguments)

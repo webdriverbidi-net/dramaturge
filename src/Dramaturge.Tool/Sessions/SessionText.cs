@@ -42,6 +42,9 @@ internal static class SessionText
             "tab" => [$"Switched to tab [{result.GetProperty("index").GetInt32()}] {Url()}", .. Page(result)],
             "tabs" => Content([.. result.GetProperty("tabs").EnumerateArray().Select(tab => $"{(tab.GetProperty("current").GetBoolean() ? "*" : " ")} [{tab.GetProperty("index").GetInt32()}] {tab.GetProperty("url").GetString()} — {tab.GetProperty("title").GetString()}")]),
             "click" or "fill" or "press" or "select" or "check" or "uncheck" or "hover" or "upload" => Action(command, result),
+            "expect" => result.TryGetProperty("template", out JsonElement template)
+                ? [$"Passed: {result.GetProperty("condition").GetString()}.", .. Content(template.GetString()!.Split('\n'))]
+                : [$"Passed: {result.GetProperty("condition").GetString()}."],
             "screenshot" => [$"Saved a screenshot of {result.GetProperty("bytes").GetInt32()} bytes to {result.GetProperty("path").GetString()}"],
             _ => Console(result.GetProperty("messages")),
         };
