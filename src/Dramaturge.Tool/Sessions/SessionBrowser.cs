@@ -5,27 +5,36 @@
 
 namespace Dramaturge.Tool.Sessions;
 
+using System.Reflection;
 using System.Text.Json;
 using WebDriverBiDi;
+using WebDriverBiDi.Input;
 using WebDriverBiDi.Log;
+using WebDriverBiDi.Session;
 
 /// <summary>
-/// A session's browser, as commands drive it: its tabs, the one commands act on, each tab's latest snapshot, the
-/// documents each frame has had, and the console messages not yet read.
+/// A session's browser, as commands drive it: its tabs, the one commands act on, each tab's latest snapshot, whose refs
+/// actions take, the documents each frame has had, and the console messages not yet read.
 /// </summary>
 internal sealed class SessionBrowser : IDisposable
 {
     private const int ConsoleLimit = 500;
     private const string NoTab = "no-tab";
+    private const string SnapshotHint = "Run 'dramaturge snapshot' for the current tab's refs.";
+    private const int EffectLimit = 100;
 
     private readonly Browser browser;
     private readonly SessionSettings settings;
     private readonly HashSet<string> allowedOrigins;
+    private readonly List<string> uploadDirectories;
     private readonly object lockObject = new();
     private readonly List<IDisposable> observers = [];
     private readonly Dictionary<string, int> documents = [];
     private readonly Dictionary<Page, PageSnapshot> snapshots = [];
     private readonly LinkedList<ConsoleEntry> console = [];
+    private readonly LinkedList<Dictionary<string, object?>> effects = [];
+    private readonly HashSet<Page> reportedPages = [];
+    private long reportedConsole;
     private long consoleCount;
     private long consoleRead;
     private Page? current;
@@ -35,6 +44,7 @@ internal sealed class SessionBrowser : IDisposable
         this.browser = browser;
         this.settings = settings;
         this.allowedOrigins = [.. settings.AllowedOrigins.Select(origin => Origin(new Uri(origin)))];
+        this.uploadDirectories = [.. settings.UploadDirectories.Select(directory => RealPath(directory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar)];
     }
 
     /// <summary>
@@ -51,6 +61,10 @@ internal sealed class SessionBrowser : IDisposable
         lock (session.lockObject)
         {
             session.observers.Add(browser.Group.Driver.BrowsingContext.OnNavigationCommitted.AddObserver(e => session.OnDocument(e.BrowsingContextId)));
+
+            // The driver's events, unlike the pages' own, are observed as they arrive, before the answer to an action.
+            session.observers.Add(browser.Group.Driver.BrowsingContext.OnUserPromptOpened.AddObserver(e => session.Notice(new Dictionary<string, object?>() { ["kind"] = "dialog", ["type"] = e.PromptType.ToString().ToLowerInvariant(), ["message"] = e.Message, ["answer"] = e.Handler == UserPromptHandlerType.Accept ? "accepted" : "dismissed" })));
+            session.observers.Add(browser.Group.Driver.BrowsingContext.OnDownloadWillBegin.AddObserver(e => session.Notice(new Dictionary<string, object?>() { ["kind"] = "download", ["fileName"] = e.SuggestedFileName, ["url"] = e.Url, ["saved"] = settings.DownloadDirectory is not null })));
             session.observers.Add(browser.OnPageCreated.AddObserver(e => session.Watch(e.Page)));
             session.observers.Add(browser.OnPageClosed.AddObserver(e => session.OnClosed(e.Page)));
             foreach (Page page in browser.Pages)
@@ -59,6 +73,16 @@ internal sealed class SessionBrowser : IDisposable
             }
 
             session.current = browser.Pages.FirstOrDefault();
+            session.reportedPages.UnionWith(browser.Pages);
+        }
+
+        if (settings.DownloadDirectory is null)
+        {
+            await browser.DenyDownloadsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await browser.AllowDownloadsAsync(Path.GetFullPath(settings.DownloadDirectory), cancellationToken).ConfigureAwait(false);
         }
 
         if (settings.AllowedOrigins.Count > 0)
@@ -75,6 +99,29 @@ internal sealed class SessionBrowser : IDisposable
     /// <param name="url">The address.</param>
     /// <returns>The origin, such as <c>https://example.com</c>.</returns>
     public static string Origin(Uri url) => url.GetLeftPart(UriPartial.Authority).ToLowerInvariant();
+
+    /// <summary>
+    /// Gets the full path of a file or directory with every link along it followed, so that no link can lead out of
+    /// a directory the path appears to be in.
+    /// </summary>
+    /// <param name="path">The path.</param>
+    /// <returns>The path with no links in it.</returns>
+    public static string RealPath(string path)
+    {
+        string full = Path.GetFullPath(path);
+        string resolved = Path.GetPathRoot(full)!;
+        foreach (string part in full[resolved.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            resolved = Path.Combine(resolved, part);
+            FileSystemInfo? target = Directory.Exists(resolved) ? Directory.ResolveLinkTarget(resolved, true) : File.ResolveLinkTarget(resolved, true);
+            if (target is not null)
+            {
+                resolved = RealPath(target.FullName);
+            }
+        }
+
+        return resolved;
+    }
 
     /// <summary>
     /// Runs a command on the browser.
@@ -97,7 +144,15 @@ internal sealed class SessionBrowser : IDisposable
                 "url" or "snapshot" => await this.WithTabAsync(null, snapshot, cancellationToken).ConfigureAwait(false),
                 "tabs" => await this.TabsAsync(cancellationToken).ConfigureAwait(false),
                 "tab" => Number(arguments, "index") is int index ? await this.SwitchAsync(index, cancellationToken).ConfigureAwait(false) : BadArguments(command),
-                "screenshot" => Text(arguments, "path") is string path ? await this.ScreenshotAsync(path, Flag(arguments, "fullPage"), cancellationToken).ConfigureAwait(false) : BadArguments(command),
+                "screenshot" => Text(arguments, "path") is string path ? await this.ScreenshotAsync(path, Flag(arguments, "fullPage"), Text(arguments, "ref"), cancellationToken).ConfigureAwait(false) : BadArguments(command),
+                "click" => await this.ActAsync(command, arguments, (locator, result, token) => ClickAsync(locator, arguments, result, token), snapshot, cancellationToken).ConfigureAwait(false),
+                "fill" => Text(arguments, "text") is string text ? await this.ActAsync(command, arguments, (locator, _, token) => locator.FillAsync(text, cancellationToken: token), snapshot, cancellationToken).ConfigureAwait(false) : BadArguments(command),
+                "press" => Text(arguments, "key") is string key ? await this.PressAsync(arguments, key, snapshot, cancellationToken).ConfigureAwait(false) : BadArguments(command),
+                "select" => Texts(arguments, "values") is List<string> values ? await this.ActAsync(command, arguments, (locator, result, token) => SelectAsync(locator, values, Flag(arguments, "byValue"), result, token), snapshot, cancellationToken).ConfigureAwait(false) : BadArguments(command),
+                "check" => await this.ActAsync(command, arguments, (locator, _, token) => locator.CheckAsync(cancellationToken: token), snapshot, cancellationToken).ConfigureAwait(false),
+                "uncheck" => await this.ActAsync(command, arguments, (locator, _, token) => locator.UncheckAsync(cancellationToken: token), snapshot, cancellationToken).ConfigureAwait(false),
+                "hover" => await this.ActAsync(command, arguments, (locator, _, token) => locator.HoverAsync(cancellationToken: token), snapshot, cancellationToken).ConfigureAwait(false),
+                "upload" => Texts(arguments, "files") is List<string> files ? await this.UploadAsync(arguments, files, snapshot, cancellationToken).ConfigureAwait(false) : BadArguments(command),
                 "console" => this.ReadConsole(Flag(arguments, "all")),
                 _ => null,
             };
@@ -128,12 +183,66 @@ internal sealed class SessionBrowser : IDisposable
         return arguments.ValueKind == JsonValueKind.Object && arguments.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int number) ? number : null;
     }
 
+    // A non-empty array of strings.
+    private static List<string>? Texts(JsonElement arguments, string name)
+    {
+        return arguments.ValueKind == JsonValueKind.Object && arguments.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.Array && value.GetArrayLength() > 0 && value.EnumerateArray().All(item => item.ValueKind == JsonValueKind.String)
+            ? [.. value.EnumerateArray().Select(item => item.GetString()!)]
+            : null;
+    }
+
     private static bool Flag(JsonElement arguments, string name)
     {
         return arguments.ValueKind == JsonValueKind.Object && arguments.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.True;
     }
 
     private static DaemonAnswer BadArguments(string command) => DaemonAnswer.Failed("bad-request", $"The arguments of '{command}' are missing or not valid.");
+
+    private static DaemonAnswer NoTabOpen() => DaemonAnswer.Failed(NoTab, "The session has no tab open.", "Open one with 'dramaturge open <url>'.");
+
+    private static Task ClickAsync(ElementLocator locator, JsonElement arguments, Dictionary<string, object?> result, CancellationToken cancellationToken)
+    {
+        ClickOptions options = new() { Button = Text(arguments, "button") switch { "right" => PointerButton.Right, "middle" => PointerButton.Middle, _ => PointerButton.Left } };
+        result["double"] = Flag(arguments, "double");
+        return Flag(arguments, "double") ? locator.DblClickAsync(options, cancellationToken) : locator.ClickAsync(options, cancellationToken);
+    }
+
+    // A key, such as Enter, a, or Control+Shift+a: modifier keys, then a key named as Keys names it, or a character.
+    private static KeyPress? ParseKey(string chord)
+    {
+        string key = chord.EndsWith('+') ? "+" : chord[(chord.LastIndexOf('+') + 1)..];
+        string? value = key.Length == 1 ? key : typeof(Keys).GetField(key, BindingFlags.Public | BindingFlags.Static | BindingFlags.IgnoreCase)?.GetValue(null) as string;
+        KeyModifiers modifiers = KeyModifiers.None;
+        foreach (string name in chord[..^key.Length].Split('+', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (Enum.GetNames<KeyModifiers>().FirstOrDefault(modifier => modifier != nameof(KeyModifiers.None) && string.Equals(modifier, name, StringComparison.OrdinalIgnoreCase)) is not string modifierName)
+            {
+                return null;
+            }
+
+            modifiers |= Enum.Parse<KeyModifiers>(modifierName);
+        }
+
+        return value is null ? null : new KeyPress(value, modifiers);
+    }
+
+    // Options are matched by label, as a snapshot shows them, unless by value is asked for.
+    private static async Task SelectAsync(ElementLocator locator, List<string> values, bool byValue, Dictionary<string, object?> result, CancellationToken cancellationToken)
+    {
+        result["selected"] = await locator.SelectOptionAsync(values.Select(value => byValue ? SelectOption.ByValue(value) : SelectOption.ByLabel(value)), cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    private static Task PressAsync(ElementLocator locator, string key, KeyPress press, Dictionary<string, object?> result, CancellationToken cancellationToken)
+    {
+        result["key"] = key;
+        return locator.PressAsync(press.Key, new KeyActionOptions() { Modifiers = press.Modifiers }, cancellationToken);
+    }
+
+    private static Task UploadAsync(ElementLocator locator, List<string> files, Dictionary<string, object?> result, CancellationToken cancellationToken)
+    {
+        result["files"] = files.Count;
+        return locator.SetInputFilesAsync(files, cancellationToken: cancellationToken);
+    }
 
     private static async Task<string> TitleAsync(Page page, CancellationToken cancellationToken)
     {
@@ -177,6 +286,7 @@ internal sealed class SessionBrowser : IDisposable
         lock (this.lockObject)
         {
             this.current = page;
+            this.reportedPages.Add(page);
         }
 
         await page.NavigateAsync(url, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -188,7 +298,7 @@ internal sealed class SessionBrowser : IDisposable
     {
         if (this.Current() is not Page page)
         {
-            return DaemonAnswer.Failed(NoTab, "The session has no tab open.", "Open one with 'dramaturge open <url>'.");
+            return NoTabOpen();
         }
 
         if (action is not null)
@@ -232,14 +342,31 @@ internal sealed class SessionBrowser : IDisposable
         return DaemonAnswer.Of(described);
     }
 
-    private async Task<DaemonAnswer> ScreenshotAsync(string path, bool fullPage, CancellationToken cancellationToken)
+    // The whole tab, or, given a ref, its element.
+    private async Task<DaemonAnswer> ScreenshotAsync(string path, bool fullPage, string? reference, CancellationToken cancellationToken)
     {
         if (this.Current() is not Page page)
         {
-            return DaemonAnswer.Failed(NoTab, "The session has no tab open.", "Open one with 'dramaturge open <url>'.");
+            return NoTabOpen();
         }
 
-        byte[] image = await page.ScreenshotAsync(new PageScreenshotOptions() { FullPage = fullPage }, cancellationToken).ConfigureAwait(false);
+        byte[] image;
+        if (reference is null)
+        {
+            image = await page.ScreenshotAsync(new PageScreenshotOptions() { FullPage = fullPage }, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            Target target = this.Find(page, reference);
+            if (target.Failure is not null)
+            {
+                return target.Failure;
+            }
+
+            await page.BringToFrontAsync(cancellationToken).ConfigureAwait(false);
+            image = await target.Locator!.ScreenshotAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
         try
         {
             await File.WriteAllBytesAsync(path, image, cancellationToken).ConfigureAwait(false);
@@ -250,6 +377,164 @@ internal sealed class SessionBrowser : IDisposable
         }
 
         return DaemonAnswer.Of(new Dictionary<string, object?>() { ["path"] = path, ["bytes"] = image.Length });
+    }
+
+    // Runs an action on the element of a ref in the current tab's latest snapshot, then reports whether it navigated
+    // the tab, the dialogs, downloads, tabs opened, and errors in the console since the last action, which can include
+    // those of the last action that came after it, and, unless asked not to, the snapshot after it, as its changes
+    // from the one before when that is shorter.
+    private async Task<DaemonAnswer> ActAsync(string command, JsonElement arguments, Func<ElementLocator, Dictionary<string, object?>, CancellationToken, Task> action, bool snapshot, CancellationToken cancellationToken)
+    {
+        if (Text(arguments, "ref") is not string reference)
+        {
+            return BadArguments(command);
+        }
+
+        if (this.Current() is not Page page)
+        {
+            return NoTabOpen();
+        }
+
+        Target target = this.Find(page, reference);
+        if (target.Failure is not null)
+        {
+            return target.Failure;
+        }
+
+        Dictionary<string, object?> result = new() { ["ref"] = reference };
+        int documentsBefore;
+        lock (this.lockObject)
+        {
+            documentsBefore = this.documents.GetValueOrDefault(page.MainFrame.Id);
+        }
+
+        try
+        {
+            // Chrome renders no frames in a tab behind another, and an action waits for frames.
+            await page.BringToFrontAsync(cancellationToken).ConfigureAwait(false);
+            await action(target.Locator!, result, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is WebDriverBiDiException or InvalidOperationException or ArgumentException)
+        {
+            return DaemonAnswer.Failed("action-failed", ex.Message);
+        }
+
+        string? taken = null;
+        if (snapshot)
+        {
+            try
+            {
+                taken = (await this.TakeSnapshotAsync(page, cancellationToken).ConfigureAwait(false)).ToString();
+            }
+            catch (Exception ex) when (ex is WebDriverBiDiException or InvalidOperationException)
+            {
+                // The page can be changing, as when the action navigated it.
+                result["snapshotError"] = ex.Message;
+            }
+        }
+
+        bool navigated;
+        lock (this.lockObject)
+        {
+            navigated = this.documents.GetValueOrDefault(page.MainFrame.Id) != documentsBefore;
+        }
+
+        result["url"] = page.Url;
+        result["navigated"] = navigated;
+        if (navigated)
+        {
+            result["title"] = await TitleAsync(page, cancellationToken).ConfigureAwait(false);
+            result["snapshot"] = taken;
+        }
+        else if (taken is not null)
+        {
+            IReadOnlyList<string> changes = SnapshotDiff.Describe(target.Snapshot!.Snapshot.ToString(), taken);
+            if (changes.Count < taken.Split('\n').Length)
+            {
+                result["changes"] = changes;
+            }
+            else
+            {
+                result["snapshot"] = taken;
+            }
+        }
+
+        result["effects"] = this.TakeEffects();
+        return DaemonAnswer.Of(result);
+    }
+
+    // The effects since they were last taken, then the tabs opened, and the errors in the console, since then.
+    private List<Dictionary<string, object?>> TakeEffects()
+    {
+        lock (this.lockObject)
+        {
+            List<Page> pages = [.. this.browser.Pages];
+            List<Dictionary<string, object?>> taken =
+            [
+                .. this.effects,
+                .. pages.Where(this.reportedPages.Add).Select(opened => new Dictionary<string, object?>() { ["kind"] = "tab", ["index"] = pages.IndexOf(opened) + 1, ["url"] = opened.Url }),
+                .. this.console.Where(entry => entry.Number > this.reportedConsole && entry.Level == "error").Select(entry => new Dictionary<string, object?>() { ["kind"] = "error", ["text"] = entry.Text }),
+            ];
+            this.effects.Clear();
+            this.reportedConsole = this.consoleCount;
+            return taken;
+        }
+    }
+
+    private async Task<DaemonAnswer> PressAsync(JsonElement arguments, string key, bool snapshot, CancellationToken cancellationToken)
+    {
+        if (ParseKey(key) is not KeyPress press)
+        {
+            return DaemonAnswer.Failed(CommandOutput.Usage, $"'{key}' is not a key, such as Enter, a, or Control+a.");
+        }
+
+        return await this.ActAsync("press", arguments, (locator, result, token) => PressAsync(locator, key, press, result, token), snapshot, cancellationToken).ConfigureAwait(false);
+    }
+
+    // Only files in the session's upload directories, or below them, links followed, are uploaded.
+    private async Task<DaemonAnswer> UploadAsync(JsonElement arguments, List<string> files, bool snapshot, CancellationToken cancellationToken)
+    {
+        foreach (string file in files)
+        {
+            if (!File.Exists(file))
+            {
+                return DaemonAnswer.Failed("no-file", $"There is no file {file}.");
+            }
+
+            string real = RealPath(file);
+            if (!this.uploadDirectories.Any(directory => real.StartsWith(directory, StringComparison.Ordinal)))
+            {
+                return DaemonAnswer.Failed("upload-not-allowed", $"{file} is not in a directory the session uploads from.", "Start the session in a directory above it, or with --allow-upload-from.");
+            }
+        }
+
+        return await this.ActAsync("upload", arguments, (locator, result, token) => UploadAsync(locator, files, result, token), snapshot, cancellationToken).ConfigureAwait(false);
+    }
+
+    // The element of a ref in the tab's latest snapshot, while the ref's frame still has the document it was taken from.
+    private Target Find(Page page, string reference)
+    {
+        lock (this.lockObject)
+        {
+            if (!this.snapshots.TryGetValue(page, out PageSnapshot? latest))
+            {
+                return new Target(null, null, DaemonAnswer.Failed("unknown-ref", $"The current tab has no snapshot to take {reference} from.", SnapshotHint));
+            }
+
+            ElementLocator locator;
+            try
+            {
+                locator = latest.Snapshot.Locator(reference);
+            }
+            catch (ArgumentException)
+            {
+                return new Target(null, null, DaemonAnswer.Failed("unknown-ref", $"The current tab's latest snapshot has no ref {reference}.", SnapshotHint));
+            }
+
+            return latest.Documents.GetValueOrDefault(locator.Frame.Id) == this.documents.GetValueOrDefault(locator.Frame.Id)
+                ? new Target(locator, latest, null)
+                : new Target(null, null, DaemonAnswer.Failed("stale-ref", $"{reference} is from a document its frame has since replaced.", SnapshotHint));
+        }
     }
 
     // The messages since the last read, or all those kept, each with its tab, if the tab is still open.
@@ -271,22 +556,28 @@ internal sealed class SessionBrowser : IDisposable
         return DaemonAnswer.Of(new Dictionary<string, object?>() { ["messages"] = messages });
     }
 
-    // The tab's address and title, and, if asked for, its snapshot, which becomes the tab's latest.
+    // The tab's address and title, and, if asked for, its snapshot.
     private async Task<Dictionary<string, object?>> DescribeAsync(Page page, bool snapshot, CancellationToken cancellationToken)
     {
         Dictionary<string, object?> described = new() { ["url"] = page.Url, ["title"] = await TitleAsync(page, cancellationToken).ConfigureAwait(false) };
         if (snapshot)
         {
-            AriaSnapshot taken = await page.AriaSnapshotAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-            lock (this.lockObject)
-            {
-                this.snapshots[page] = new PageSnapshot(taken, page.Frames.ToDictionary(frame => frame.Id, frame => this.documents.GetValueOrDefault(frame.Id)));
-            }
-
-            described["snapshot"] = taken.ToString();
+            described["snapshot"] = (await this.TakeSnapshotAsync(page, cancellationToken).ConfigureAwait(false)).ToString();
         }
 
         return described;
+    }
+
+    // A snapshot, which becomes the tab's latest.
+    private async Task<AriaSnapshot> TakeSnapshotAsync(Page page, CancellationToken cancellationToken)
+    {
+        AriaSnapshot taken = await page.AriaSnapshotAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+        lock (this.lockObject)
+        {
+            this.snapshots[page] = new PageSnapshot(taken, page.Frames.ToDictionary(frame => frame.Id, frame => this.documents.GetValueOrDefault(frame.Id)));
+        }
+
+        return taken;
     }
 
     private Page? Current()
@@ -327,6 +618,19 @@ internal sealed class SessionBrowser : IDisposable
         }
     }
 
+    // Kept for the next action to report; the newest are kept.
+    private void Notice(Dictionary<string, object?> effect)
+    {
+        lock (this.lockObject)
+        {
+            this.effects.AddLast(effect);
+            if (this.effects.Count > EffectLimit)
+            {
+                this.effects.RemoveFirst();
+            }
+        }
+    }
+
     private void Log(Page page, string level, string text)
     {
         lock (this.lockObject)
@@ -341,6 +645,12 @@ internal sealed class SessionBrowser : IDisposable
 
     // A tab's latest snapshot, with the number of documents each of its frames had had when it was taken.
     private sealed record PageSnapshot(AriaSnapshot Snapshot, IReadOnlyDictionary<string, int> Documents);
+
+    // A key to press, as the browser takes it, with the modifier keys held down.
+    private sealed record KeyPress(string Key, KeyModifiers Modifiers);
+
+    // The element of a ref, with the snapshot it is from, or why there is none.
+    private sealed record Target(ElementLocator? Locator, PageSnapshot? Snapshot, DaemonAnswer? Failure);
 
     private sealed record ConsoleEntry(long Number, Page Page, string Level, string Text);
 }

@@ -11,6 +11,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using Dramaturge.Browsers;
 using WebDriverBiDi;
+using WebDriverBiDi.Session;
 
 /// <summary>
 /// A session's daemon: it owns the browser and its recording, and answers one command at a time on the session's
@@ -67,7 +68,8 @@ internal sealed class SessionDaemon
             BrowserGroup group;
             try
             {
-                group = await BrowserGroup.LaunchAsync(configureLauncher(builder), cancellationToken: stopping.Token).ConfigureAwait(false);
+                BrowserLauncherBuilder launcher = configureLauncher(builder).WithSessionCapability("unhandledPromptBehavior", new UserPromptHandler() { Default = settings.Dialogs });
+                group = await BrowserGroup.LaunchAsync(launcher, cancellationToken: stopping.Token).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is WebDriverBiDiException or OperationCanceledException)
             {

@@ -13,6 +13,7 @@ using System.Text.Json;
 using Dramaturge.Browsers;
 using Dramaturge.Tool.Sessions;
 using WebDriverBiDi;
+using WebDriverBiDi.Session;
 
 /// <summary>
 /// The dramaturge tool: installs, lists, and removes, under its browsers command, the browsers and drivers that
@@ -163,6 +164,10 @@ public static class DramaturgeTool
         Option<bool> maskPasswordsOption = new("--mask-passwords") { Description = "Write values typed into, or expected of, password fields in the session's code as a read of the DRAMATURGE_PASSWORD environment variable." };
         Option<string[]> allowOriginOption = new("--allow-origin") { Description = "An origin, such as https://example.com, the session's pages may navigate to; give it once for each. By default every origin is allowed." };
         Option<bool> allowFileUrlsOption = new("--allow-file-urls") { Description = "Let the session open file: URLs." };
+        Option<string> dialogsOption = new("--dialogs") { Description = "How the browser answers the dialogs pages open, such as confirm: dismiss (the default) or accept.", DefaultValueFactory = _ => "dismiss" };
+        dialogsOption.AcceptOnlyFromAmong("dismiss", "accept");
+        Option<string?> downloadsOption = new("--downloads") { Description = "A directory to save downloads in. By default the session refuses them." };
+        Option<string[]> allowUploadFromOption = new("--allow-upload-from") { Description = "A directory files may be uploaded from, with those below it, besides the one the session is started in; give it once for each." };
         Option<bool> detachedOption = new("--detached") { Hidden = true };
         SessionSettings Settings(ParseResult parseResult) => new(
             parseResult.GetValue(sessionOption)!,
@@ -173,10 +178,13 @@ public static class DramaturgeTool
             TimeSpan.FromMinutes(parseResult.GetValue(idleTimeoutOption)),
             parseResult.GetValue(maskPasswordsOption),
             parseResult.GetValue(allowOriginOption) ?? [],
-            parseResult.GetValue(allowFileUrlsOption));
+            parseResult.GetValue(allowFileUrlsOption),
+            parseResult.GetValue(dialogsOption) == "accept" ? UserPromptHandlerType.Accept : UserPromptHandlerType.Dismiss,
+            [Environment.CurrentDirectory, .. parseResult.GetValue(allowUploadFromOption) ?? []],
+            parseResult.GetValue(downloadsOption));
         Func<ParseResult, CancellationToken, Task<int>> Written(Func<ParseResult, CancellationToken, Task<CommandOutcome>> run) => WrittenAction(run, jsonOption, output, error);
 
-        Command start = new("start", "Start a browser session that later commands drive, and that stops with session stop, when its browser closes, or when it is idle.") { sessionOption, browserOption, channelOption, headedOption, userDataDirectoryOption, idleTimeoutOption, maskPasswordsOption, allowOriginOption, allowFileUrlsOption, pathOption, jsonOption };
+        Command start = new("start", "Start a browser session that later commands drive, and that stops with session stop, when its browser closes, or when it is idle.") { sessionOption, browserOption, channelOption, headedOption, userDataDirectoryOption, idleTimeoutOption, maskPasswordsOption, allowOriginOption, allowFileUrlsOption, dialogsOption, allowUploadFromOption, downloadsOption, pathOption, jsonOption };
         start.SetAction(Written((parseResult, token) => StartSessionAsync(["session", "serve", .. args.Skip(2)], Settings(parseResult), host, error, token)));
 
         Command serve = new("serve", "Serve a session; session start runs it.") { Hidden = true };
@@ -216,6 +224,7 @@ public static class DramaturgeTool
         }
 
         problem ??= settings.AllowedOrigins.FirstOrDefault(origin => !IsOrigin(origin)) is string notOrigin ? $"'{notOrigin}' is not an origin, such as https://example.com." : null;
+        problem ??= settings.UploadDirectories.Append(settings.DownloadDirectory ?? Environment.CurrentDirectory).FirstOrDefault(directory => !Directory.Exists(directory)) is string notDirectory ? $"'{notDirectory}' is not a directory." : null;
 
         try
         {
@@ -312,6 +321,16 @@ public static class DramaturgeTool
         Option<string> outputOption = new("--output", "-o") { Description = "The file to save the screenshot in, as PNG.", Required = true };
         Option<bool> fullPageOption = new("--full-page") { Description = "Capture the whole page, not only what the window shows." };
         Option<bool> allOption = new("--all") { Description = "Show every message kept, not only those since the last console command." };
+        Option<string?> screenshotRefOption = new("--ref") { Description = "The ref of an element to capture alone, such as e7." };
+        Argument<string> refArgument = new("ref") { Description = "The element's ref, such as e7, from the current tab's latest snapshot." };
+        Argument<string> textArgument = new("text") { Description = "The text to fill the field with, in place of what it has." };
+        Argument<string> keyArgument = new("key") { Description = "The key, such as Enter, a, or Control+a." };
+        Argument<string[]> valuesArgument = new("values") { Description = "The options to select, by the labels the snapshot shows.", Arity = ArgumentArity.OneOrMore };
+        Argument<string[]> filesArgument = new("files") { Description = "The files to upload.", Arity = ArgumentArity.OneOrMore };
+        Option<bool> doubleOption = new("--double") { Description = "Click twice, as a double click." };
+        Option<string> buttonOption = new("--button") { Description = "The mouse button: left (the default), right, or middle.", DefaultValueFactory = _ => "left" };
+        buttonOption.AcceptOnlyFromAmong("left", "right", "middle");
+        Option<bool> byValueOption = new("--by-value") { Description = "Match options by their values, not their labels." };
         Command Page(string name, string description, Func<ParseResult, Dictionary<string, object?>> arguments, params Symbol[] symbols)
         {
             Command command = new(name, description);
@@ -334,6 +353,7 @@ public static class DramaturgeTool
         }
 
         Dictionary<string, object?> Snapshot(ParseResult parseResult) => new() { ["snapshot"] = !parseResult.GetValue(noSnapshotOption) };
+        Dictionary<string, object?> Act(ParseResult parseResult, Dictionary<string, object?>? more = null) => new([new("ref", parseResult.GetValue(refArgument)), new("snapshot", !parseResult.GetValue(noSnapshotOption)), .. more ?? []]);
         return
         [
             Page("open", "Open an address in the session's current tab, and show its snapshot.", parseResult => new() { ["url"] = parseResult.GetValue(urlArgument), ["snapshot"] = !parseResult.GetValue(noSnapshotOption) }, urlArgument, noSnapshotOption),
@@ -344,7 +364,15 @@ public static class DramaturgeTool
             Page("snapshot", "Show the current tab's accessibility snapshot, whose refs, such as e7, name its elements.", _ => new() { ["snapshot"] = true }),
             Page("tabs", "List the session's tabs.", _ => []),
             Page("tab", "Make a tab the current one.", parseResult => new() { ["index"] = parseResult.GetValue(indexArgument) }, indexArgument),
-            Page("screenshot", "Save a screenshot of the current tab.", parseResult => new() { ["path"] = Path.GetFullPath(parseResult.GetValue(outputOption)!), ["fullPage"] = parseResult.GetValue(fullPageOption) }, outputOption, fullPageOption),
+            Page("screenshot", "Save a screenshot of the current tab, or of an element in it.", parseResult => new() { ["path"] = Path.GetFullPath(parseResult.GetValue(outputOption)!), ["fullPage"] = parseResult.GetValue(fullPageOption), ["ref"] = parseResult.GetValue(screenshotRefOption) }, outputOption, fullPageOption, screenshotRefOption),
+            Page("click", "Click an element, and show what changed.", parseResult => Act(parseResult, new() { ["double"] = parseResult.GetValue(doubleOption), ["button"] = parseResult.GetValue(buttonOption) }), refArgument, doubleOption, buttonOption, noSnapshotOption),
+            Page("fill", "Fill a field with text, and show what changed.", parseResult => Act(parseResult, new() { ["text"] = parseResult.GetValue(textArgument) }), refArgument, textArgument, noSnapshotOption),
+            Page("press", "Press a key in an element, and show what changed.", parseResult => Act(parseResult, new() { ["key"] = parseResult.GetValue(keyArgument) }), refArgument, keyArgument, noSnapshotOption),
+            Page("select", "Select options in a select element, and show what changed.", parseResult => Act(parseResult, new() { ["values"] = parseResult.GetValue(valuesArgument), ["byValue"] = parseResult.GetValue(byValueOption) }), refArgument, valuesArgument, byValueOption, noSnapshotOption),
+            Page("check", "Check a checkbox or radio button, and show what changed.", parseResult => Act(parseResult), refArgument, noSnapshotOption),
+            Page("uncheck", "Uncheck a checkbox, and show what changed.", parseResult => Act(parseResult), refArgument, noSnapshotOption),
+            Page("hover", "Move the mouse over an element, and show what changed.", parseResult => Act(parseResult), refArgument, noSnapshotOption),
+            Page("upload", "Choose files for a file input, and show what changed.", parseResult => Act(parseResult, new() { ["files"] = parseResult.GetValue(filesArgument)!.Select(Path.GetFullPath).ToArray() }), refArgument, filesArgument, noSnapshotOption),
             Page("console", "Show the console messages, and uncaught errors, of the session's tabs since the last console command.", parseResult => new() { ["all"] = parseResult.GetValue(allOption) }, allOption),
         ];
     }

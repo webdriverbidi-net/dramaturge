@@ -6,6 +6,7 @@
 namespace Dramaturge.Tool.Sessions;
 
 using Dramaturge.Browsers;
+using WebDriverBiDi.Session;
 
 /// <summary>
 /// The settings a session is started with, fixed for its life.
@@ -19,4 +20,7 @@ using Dramaturge.Browsers;
 /// <param name="MaskPasswords">A value indicating whether the session's code masks passwords.</param>
 /// <param name="AllowedOrigins">The origins the session's pages may navigate to, as given, such as <c>https://example.com</c>, or none for any.</param>
 /// <param name="AllowFileUrls">A value indicating whether the session may open <c>file:</c> URLs.</param>
-internal sealed record SessionSettings(string Name, BrowserKind Browser, string? Channel, bool Headed, string? UserDataDirectory, TimeSpan IdleTimeout, bool MaskPasswords, IReadOnlyList<string> AllowedOrigins, bool AllowFileUrls);
+/// <param name="Dialogs">How the browser answers dialogs: <see cref="UserPromptHandlerType.Dismiss"/> or <see cref="UserPromptHandlerType.Accept"/>.</param>
+/// <param name="UploadDirectories">The directories files may be uploaded from, with those below them: the directory the session was started in, then those given, as given.</param>
+/// <param name="DownloadDirectory">The directory downloads are saved in, as given, or <see langword="null"/> to refuse them.</param>
+internal sealed record SessionSettings(string Name, BrowserKind Browser, string? Channel, bool Headed, string? UserDataDirectory, TimeSpan IdleTimeout, bool MaskPasswords, IReadOnlyList<string> AllowedOrigins, bool AllowFileUrls, UserPromptHandlerType Dialogs, IReadOnlyList<string> UploadDirectories, string? DownloadDirectory);

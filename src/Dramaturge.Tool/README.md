@@ -84,6 +84,9 @@ dramaturge session stop
 | `--mask-passwords` | Masks passwords in the session's code |
 | `--allow-origin` | An origin, such as `https://example.com`, the session's pages may load; give it once for each. Without it, every origin is allowed |
 | `--allow-file-urls` | Lets `open` open `file:` URLs, which it otherwise refuses |
+| `--dialogs` | How the browser answers the dialogs pages open, such as `confirm`: `dismiss` (the default) or `accept` |
+| `--allow-upload-from` | A directory files may be uploaded from, besides the one the session is started in; give it once for each |
+| `--downloads` | A directory to save downloads in; without it, the session refuses downloads |
 | `--path` | The browser cache, as for `browsers` |
 | `--json` | Writes the result, or the error, as one line of JSON (on `list` and `stop` too) |
 
@@ -104,8 +107,9 @@ These commands drive a session's browser, one command at a time; each takes `--s
 
 ```bash
 dramaturge session start
-dramaturge open https://example.com/
-dramaturge snapshot
+dramaturge open https://example.com/login
+dramaturge fill e3 ada
+dramaturge click e5
 dramaturge screenshot -o example.png
 dramaturge session stop
 ```
@@ -120,10 +124,24 @@ dramaturge session stop
 | `tab` *index* | Makes the tab of that number the current one, and brings it to the front |
 | `screenshot -o` *file* | Saves a PNG of the current tab; `--full-page` captures the whole page, not only what the window shows |
 | `console` | Shows the console messages and uncaught errors of every tab since the last `console`, each with its tab's number; `--all` shows every one kept, up to the latest 500 |
+| `click` *ref* | Clicks the element; `--double` double-clicks it, and `--button` chooses `left` (the default), `right`, or `middle` |
+| `fill` *ref* *text* | Replaces the text of a field with the text given |
+| `press` *ref* *key* | Presses a key in the element: a key named as `Keys` names it, such as `Enter` or `ArrowDown`, or a character, after any modifier keys, as in `Control+a` |
+| `select` *ref* *option*... | Selects the options of a select element with the labels given, as the snapshot shows them; `--by-value` matches their values instead |
+| `check`, `uncheck` *ref* | Checks or unchecks a checkbox or radio button |
+| `hover` *ref* | Moves the mouse over the element |
+| `upload` *ref* *file*... | Chooses files for a file input |
+| `screenshot -o` *file* `--ref` *ref* | Saves a PNG of the element alone |
 
 `open`, `back`, `forward`, and `reload` show the address, title, and snapshot of the page they arrive at, taken as soon as the browser reports the navigation complete; `--no-snapshot` leaves the snapshot out. A tab that a page opens becomes one of the session's tabs, and when the current tab closes, the last tab left becomes the current one.
 
-What a page supplies, such as its title, snapshot, and console messages, is written between the lines `--- page content (untrusted) ---` and `--- end of page content ---`, so that a program, or an agent, can tell it from the tool's own words and treat it as data rather than instructions.
+The actions take a ref from the current tab's latest snapshot, which `snapshot` takes, as do `open`, `back`, `forward`, and `reload`, and each action unless `--no-snapshot` is given. A ref that snapshot does not have is an `unknown-ref` error, and one from a document its frame has since replaced, as by a navigation, is a `stale-ref` error; either way, `snapshot` gives the refs to use. An action brings its tab to the front first, since Chrome does not draw a tab behind another, and actions wait for the page to be drawn.
+
+Each action says what it did, and whether the tab navigated, and then shows what happened since the previous action: dialogs, with how the browser answered them, downloads, tabs opened, and errors in the console. Then it shows the snapshot taken right after it: in full after a navigation, and otherwise only what changed, each line removed marked `-` and each added `+`, with the lines that enclose them, unless that would be longer than the snapshot itself. The snapshot is taken as soon as the action is done, without waiting for what the action starts, so a navigation or a download that begins later is not reflected in it; the next action reports the download, and refuses its refs if the document changed.
+
+Files are uploaded only from the directory the session was started in, those given with `--allow-upload-from`, and the directories below them, with every link along a file's path followed, so that no link leads out of them. Hovering is not recorded in the session's code, as for `codegen`.
+
+What a page supplies, such as its title, snapshot, console messages, and dialogs, is written between the lines `--- page content (untrusted) ---` and `--- end of page content ---`, so that a program, or an agent, can tell it from the tool's own words and treat it as data rather than instructions.
 
 With `--allow-origin`, `open` refuses an address of another origin, and the browser does not load a page or frame of another origin however it is reached, as by a link or a redirect. `open` refuses `file:` URLs unless the session was started with `--allow-file-urls`.
 
