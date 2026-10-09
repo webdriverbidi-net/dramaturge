@@ -1333,7 +1333,7 @@ public sealed class ElementLocator
             parameters.StartNodes.AddRange(startNodes.Select(node => node.ToSharedReference()));
         }
 
-        LocateNodesCommandResult result = await this.Group.Driver.BrowsingContext.LocateNodesAsync(parameters, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
+        LocateNodesCommandResult result = await this.Frame.Page.NavigationGate.RunLookupAsync(budget, () => this.Group.Driver.BrowsingContext.LocateNodesAsync(parameters, budget.Remaining, budget.CancellationToken)).ConfigureAwait(false);
         return DistinctNodes(result.Nodes);
     }
 

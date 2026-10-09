@@ -10,4 +10,10 @@ namespace Dramaturge;
 /// </summary>
 /// <param name="Code">The locator's C# after its frame's variable, such as <c>GetByRole("button", "Save")</c>.</param>
 /// <param name="Locator">The locator.</param>
-internal sealed record GeneratedLocator(string Code, ElementLocator Locator);
+internal sealed record GeneratedLocator(string Code, ElementLocator Locator)
+{
+    /// <summary>
+    /// Gets the element's text the locator finds it by, or <see langword="null"/> when it finds it otherwise.
+    /// </summary>
+    public string? MatchedText { get; init; }
+}

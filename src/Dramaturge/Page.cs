@@ -144,6 +144,11 @@ public sealed class Page
     internal Task Created => this.created.Task;
 
     /// <summary>
+    /// Gets what keeps the page's element lookups and the navigations the library starts on it from overlapping.
+    /// </summary>
+    internal NavigationGate NavigationGate { get; } = new();
+
+    /// <summary>
     /// Creates a locator for elements in the page's main frame.
     /// </summary>
     /// <param name="locator">How the elements are found, such as a <see cref="CssLocator"/>.</param>
@@ -1222,12 +1227,12 @@ public sealed class Page
     // History traversal has no wait of its own, so the navigation it causes is awaited from the frame's events.
     private Task<string> TraverseHistoryAsync(long delta, ReadinessState wait, TimeBudget budget)
     {
-        return CodeRecording.RunNavigationAsync(this.MainFrame, delta < 0 ? "GoBackAsync()" : "GoForwardAsync()", async () =>
+        return CodeRecording.RunNavigationAsync(this.MainFrame, delta < 0 ? "GoBackAsync()" : "GoForwardAsync()", () => this.NavigationGate.RunNavigationAsync(budget, async () =>
         {
             int before = this.MainFrame.Navigations;
             await this.Browser.Group.Driver.BrowsingContext.TraverseHistoryAsync(new TraverseHistoryCommandParameters(this.Id, delta), budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
             await this.MainFrame.WaitForNavigationAsync(before, wait, budget).ConfigureAwait(false);
             return this.Url;
-        });
+        }));
     }
 }

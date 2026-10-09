@@ -114,4 +114,26 @@ public class NavigationWaitIntegrationTests
         Assert.Equal(server.UrlFor("second.html"), url);
         Assert.Equal(server.UrlFor("frames.html"), page.Url);
     }
+
+    // Chrome can stop answering a page whose role lookup is pending when it reloads, so the reload waits for it.
+    [Theory]
+    [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
+    public async Task ReloadWaitsForTheLookupsInFlight(BrowserKind browserKind)
+    {
+        await using TestPageServer server = await TestPageServer.StartAsync();
+        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await page.NavigateAsync(server.UrlFor("recording.html"), cancellationToken: TestContext.Current.CancellationToken);
+
+        List<int> counts = [];
+        for (int i = 0; i < 10; i++)
+        {
+            Task<int> lookup = page.GetByRole("button", "Go").CountAsync(TestContext.Current.CancellationToken);
+            await page.ReloadAsync(cancellationToken: TestContext.Current.CancellationToken);
+            counts.Add(await lookup);
+            Assert.Equal(2, await page.EvaluateAsync<int>("() => 1 + 1", timeout: TimeSpan.FromSeconds(5), cancellationToken: TestContext.Current.CancellationToken));
+        }
+
+        Assert.All(counts, count => Assert.Equal(1, count));
+    }
 }

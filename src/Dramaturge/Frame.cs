@@ -437,7 +437,7 @@ public sealed class Frame
     internal async Task<CssPoint> GetOffsetInParentAsync(TimeBudget budget)
     {
         Frame parent = this.ParentFrame!;
-        LocateNodesCommandResult located = await this.Group.Driver.BrowsingContext.LocateNodesAsync(new LocateNodesCommandParameters(parent.Id, new CssLocator("iframe, frame")), budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
+        LocateNodesCommandResult located = await this.Page.NavigationGate.RunLookupAsync(budget, () => this.Group.Driver.BrowsingContext.LocateNodesAsync(new LocateNodesCommandParameters(parent.Id, new CssLocator("iframe, frame")), budget.Remaining, budget.CancellationToken)).ConfigureAwait(false);
         if (located.Nodes.Count > 0)
         {
             RemoteValue offsets = await this.Group.Driver.Script.CallFunctionAsync(parent.Id, "(...elements) => elements.map((element) => { const rect = element.getBoundingClientRect(); const style = getComputedStyle(element); return [element.contentWindow, rect.left + element.clientLeft + parseFloat(style.paddingLeft), rect.top + element.clientTop + parseFloat(style.paddingTop)]; })", [.. located.Nodes.Select(node => node.ToSharedReference())], this.Group.Options.SandboxName, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
@@ -508,7 +508,7 @@ public sealed class Frame
     internal async Task<string> NavigateCoreAsync(string url, ReadinessState wait, TimeBudget budget)
     {
         NavigateCommandParameters parameters = new(this.Id, url) { Wait = wait };
-        NavigateCommandResult result = await CodeRecording.RunNavigationAsync(this, $"NavigateAsync({CodeWriter.Literal(url)})", () => this.Group.Driver.BrowsingContext.NavigateAsync(parameters, budget.Remaining, budget.CancellationToken)).ConfigureAwait(false);
+        NavigateCommandResult result = await CodeRecording.RunNavigationAsync(this, $"NavigateAsync({CodeWriter.Literal(url)})", () => this.Page.NavigationGate.RunNavigationAsync(budget, () => this.Group.Driver.BrowsingContext.NavigateAsync(parameters, budget.Remaining, budget.CancellationToken))).ConfigureAwait(false);
         return result.Url;
     }
 
@@ -521,7 +521,7 @@ public sealed class Frame
     internal async Task<string> ReloadCoreAsync(ReadinessState wait, TimeBudget budget)
     {
         ReloadCommandParameters parameters = new(this.Id) { Wait = wait };
-        ReloadCommandResult result = await CodeRecording.RunNavigationAsync(this, "ReloadAsync()", () => this.Group.Driver.BrowsingContext.ReloadAsync(parameters, budget.Remaining, budget.CancellationToken)).ConfigureAwait(false);
+        ReloadCommandResult result = await CodeRecording.RunNavigationAsync(this, "ReloadAsync()", () => this.Page.NavigationGate.RunNavigationAsync(budget, () => this.Group.Driver.BrowsingContext.ReloadAsync(parameters, budget.Remaining, budget.CancellationToken))).ConfigureAwait(false);
         return result.Url;
     }
 
@@ -671,6 +671,11 @@ public sealed class Frame
             this.loadState = null;
             this.navigations++;
             this.SignalStateChange();
+        }
+
+        if (this.ParentFrame is null)
+        {
+            this.Page.NavigationGate.OnDocumentCommitted();
         }
     }
 

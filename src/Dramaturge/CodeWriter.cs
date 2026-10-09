@@ -40,6 +40,7 @@ internal static class CodeWriter
     public const string AssertionsNamespace = "static Dramaturge.Assertions";
 
     private const string DefaultTestIdAttribute = "data-testid";
+    private const string RegistrationArticle = "https://webdriverbidi-net.github.io/dramaturge/articles/test-frameworks.html#registering-the-shared-browser";
 
     // The key names KeyboardEvent.key gives that are also members of Keys.
     private static readonly HashSet<string> KeyMembers =
@@ -156,7 +157,11 @@ internal static class CodeWriter
         bool customTestId = testIdAttribute != DefaultTestIdAttribute;
         TestFramework? testFramework = target switch
         {
-            CodeTarget.Xunit => new TestFramework("Dramaturge.Xunit", "Xunit", null, "[Fact]"),
+            CodeTarget.Xunit => new TestFramework("Dramaturge.Xunit", "Xunit", null, "[Fact]")
+            {
+                Preamble = ["#pragma warning disable xUnit1051 // The recorded steps do not pass TestContext.Current.CancellationToken.", string.Empty],
+                Registration = "[assembly: AssemblyFixture(typeof(Dramaturge.Xunit.DramaturgeAssemblyFixture))]",
+            },
             CodeTarget.NUnit => new TestFramework("Dramaturge.NUnit", "NUnit.Framework", null, "[Test]"),
             CodeTarget.MSTest => new TestFramework("Dramaturge.MSTest", "Microsoft.VisualStudio.TestTools.UnitTesting", "[TestClass]", "[TestMethod]"),
             CodeTarget.TUnit => new TestFramework("Dramaturge.TUnit", "TUnit.Core", null, "[Test]"),
@@ -176,6 +181,13 @@ internal static class CodeWriter
         }
         else
         {
+            lines.AddRange(testFramework.Preamble);
+            lines.Add($"// The test project registers Dramaturge's shared browser once: {RegistrationArticle}");
+            if (testFramework.Registration is not null)
+            {
+                lines.Add($"// {testFramework.Registration}");
+            }
+
             if (testFramework.ClassAttribute is not null)
             {
                 lines.Add(testFramework.ClassAttribute);
@@ -211,5 +223,12 @@ internal static class CodeWriter
         return statements.SelectMany(statement => statement.Split('\n')).Select(line => line.Length == 0 ? line : indent + line);
     }
 
-    private sealed record TestFramework(string Package, string Namespace, string? ClassAttribute, string TestAttribute);
+    private sealed record TestFramework(string Package, string Namespace, string? ClassAttribute, string TestAttribute)
+    {
+        // Lines before the class, such as a pragma.
+        public IReadOnlyList<string> Preamble { get; init; } = [];
+
+        // The registration, when it is a single line.
+        public string? Registration { get; init; }
+    }
 }

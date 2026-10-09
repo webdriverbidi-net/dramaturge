@@ -110,7 +110,7 @@ public class CodeRecordingIntegrationTests
             [
                 "await page.GetByRole(\"button\", \"Go\").ClickAsync();",
                 $"await Expect({paragraph}).ToBeVisibleAsync();",
-                $"await Expect({paragraph}).ToContainTextAsync(\"Hello\");",
+                hasTextLocator ? $"await Expect({paragraph}).ToBeVisibleAsync();" : $"await Expect({paragraph}).ToContainTextAsync(\"Hello\");",
                 "await page.GetByRole(\"textbox\", \"Name\").FillAsync(\"Ada\");",
                 "await Expect(page.GetByRole(\"textbox\", \"Name\")).ToHaveValueAsync(\"Ada\");",
                 "await page.GetByRole(\"checkbox\", \"Agree\").CheckAsync();",
@@ -356,7 +356,7 @@ public class CodeRecordingIntegrationTests
                 "await page.GetByRole(\"checkbox\", \"Agree\").CheckAsync();",
                 "await Expect(page.GetByRole(\"checkbox\", \"Agree\")).ToBeCheckedAsync();",
                 $"await Expect({paragraph}).ToBeVisibleAsync();",
-                $"await Expect({paragraph}).ToContainTextAsync(\"Hell\");",
+                browserKind == BrowserKind.Chrome ? $"await Expect({paragraph}).ToBeVisibleAsync();" : $"await Expect({paragraph}).ToContainTextAsync(\"Hell\");",
                 "await Expect(page.GetByRole(\"list\")).ToMatchAriaSnapshotAsync(\"\"\"\n    - listitem: One\n    \"\"\");",
                 "await Expect(page).ToHaveTitleAsync(\"Recording\");",
                 $"await Expect(page).ToHaveUrlAsync(\"{url}\");",

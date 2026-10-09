@@ -202,11 +202,15 @@ public class CodeRecordingTests
         string code = await recording.StopAsync(TestContext.Current.CancellationToken);
 
         string[] usings = [.. new[] { "Dramaturge", package, framework, "WebDriverBiDi.BrowsingContext" }.Order(StringComparer.Ordinal).Select(name => $"using {name};")];
+        string registration = "// The test project registers Dramaturge's shared browser once: https://webdriverbidi-net.github.io/dramaturge/articles/test-frameworks.html#registering-the-shared-browser\n";
+        string preamble = target == CodeTarget.Xunit
+            ? "#pragma warning disable xUnit1051 // The recorded steps do not pass TestContext.Current.CancellationToken.\n\n" + registration + "// [assembly: AssemblyFixture(typeof(Dramaturge.Xunit.DramaturgeAssemblyFixture))]\n"
+            : registration;
         Assert.Equal(
             $$"""
             {{string.Join("\n", usings)}}
 
-            {{classAttribute}}public class RecordedTests : PageTest
+            {{preamble}}{{classAttribute}}public class RecordedTests : PageTest
             {
                 {{testAttribute}}
                 public async Task Recorded()
