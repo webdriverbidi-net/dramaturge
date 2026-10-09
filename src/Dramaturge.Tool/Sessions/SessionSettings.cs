@@ -17,4 +17,6 @@ using Dramaturge.Browsers;
 /// <param name="UserDataDirectory">The browser's profile directory, or <see langword="null"/> for a temporary one.</param>
 /// <param name="IdleTimeout">How long the daemon waits for a command before it stops.</param>
 /// <param name="MaskPasswords">A value indicating whether the session's code masks passwords.</param>
-internal sealed record SessionSettings(string Name, BrowserKind Browser, string? Channel, bool Headed, string? UserDataDirectory, TimeSpan IdleTimeout, bool MaskPasswords);
+/// <param name="AllowedOrigins">The origins the session's pages may navigate to, as given, such as <c>https://example.com</c>, or none for any.</param>
+/// <param name="AllowFileUrls">A value indicating whether the session may open <c>file:</c> URLs.</param>
+internal sealed record SessionSettings(string Name, BrowserKind Browser, string? Channel, bool Headed, string? UserDataDirectory, TimeSpan IdleTimeout, bool MaskPasswords, IReadOnlyList<string> AllowedOrigins, bool AllowFileUrls);

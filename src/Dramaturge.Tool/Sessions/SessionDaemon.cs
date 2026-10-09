@@ -21,13 +21,15 @@ internal sealed class SessionDaemon
     private static readonly Dictionary<string, object?> NoResult = [];
 
     private readonly SessionSettings settings;
+    private readonly SessionBrowser browser;
     private readonly string socketPath;
     private readonly Socket listener;
     private readonly DateTimeOffset started;
 
-    private SessionDaemon(SessionSettings settings, string socketPath, Socket listener, DateTimeOffset started)
+    private SessionDaemon(SessionSettings settings, SessionBrowser browser, string socketPath, Socket listener, DateTimeOffset started)
     {
         this.settings = settings;
+        this.browser = browser;
         this.socketPath = socketPath;
         this.listener = listener;
         this.started = started;
@@ -86,13 +88,14 @@ internal sealed class SessionDaemon
                 CodeRecording recording = await browser.RecordCodeAsync(new CodeRecordingOptions() { ShowToolbar = false, MaskPasswords = settings.MaskPasswords }, stopping.Token).ConfigureAwait(false);
                 await using (recording.ConfigureAwait(false))
                 {
+                    using SessionBrowser session = await SessionBrowser.StartAsync(browser, settings, stopping.Token).ConfigureAwait(false);
                     string socketPath = SessionPaths.SocketPath(directory, settings.Name);
                     File.Delete(socketPath);
                     using Socket listener = new(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
                     listener.Bind(new UnixDomainSocketEndPoint(socketPath));
                     SessionPaths.RestrictToUser(socketPath);
                     listener.Listen();
-                    SessionDaemon daemon = new(settings, socketPath, listener, time.GetUtcNow());
+                    SessionDaemon daemon = new(settings, session, socketPath, listener, time.GetUtcNow());
                     using ITimer idle = time.CreateTimer(_ => stopping.Cancel(), null, settings.IdleTimeout, Timeout.InfiniteTimeSpan);
                     try
                     {
@@ -177,7 +180,7 @@ internal sealed class SessionDaemon
             {
                 JsonElement? request = await SessionWire.ReadAsync(stream, cancellationToken).ConfigureAwait(false);
                 string? command = request is JsonElement message && message.TryGetProperty("command", out JsonElement name) && name.ValueKind == JsonValueKind.String ? name.GetString() : null;
-                if (command != "stop")
+                if (command is "status" or null)
                 {
                     resume();
                 }
@@ -197,7 +200,18 @@ internal sealed class SessionDaemon
                         await SessionWire.WriteErrorAsync(stream, new SessionError("bad-request", "The request was not a command."), cancellationToken).ConfigureAwait(false);
                         return false;
                     default:
-                        await SessionWire.WriteErrorAsync(stream, new SessionError("unknown-command", $"The session does not know the command '{command}'.", "The tool and the session may be of different versions; stop the session and start it again."), cancellationToken).ConfigureAwait(false);
+                        DaemonAnswer answer = await this.browser.RunAsync(command, request!.Value.TryGetProperty("arguments", out JsonElement arguments) ? arguments : default, cancellationToken).ConfigureAwait(false)
+                            ?? DaemonAnswer.Failed("unknown-command", $"The session does not know the command '{command}'.", "The tool and the session may be of different versions; stop the session and start it again.");
+                        resume();
+                        if (answer.Error is SessionError failure)
+                        {
+                            await SessionWire.WriteErrorAsync(stream, failure, cancellationToken).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await SessionWire.WriteResultAsync(stream, answer.Result!, cancellationToken).ConfigureAwait(false);
+                        }
+
                         return false;
                 }
             }

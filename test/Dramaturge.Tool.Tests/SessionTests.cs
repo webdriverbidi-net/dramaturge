@@ -13,92 +13,67 @@ using Dramaturge.TestUtilities;
 using Dramaturge.Tool.TestUtilities;
 using Microsoft.Extensions.Time.Testing;
 
-// Each session's daemon serves in the test's own process, connected to a fake browser in place of the one it would
-// launch. The sessions' directory is short, since a socket's path may be at most 104 bytes on macOS.
 public sealed class SessionTests : IAsyncLifetime
 {
-    private const string Broken = "broken";
-
-    private readonly string directory = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), $"dts-{Guid.NewGuid():N}"[..12])).FullName;
-    private readonly FakeTimeProvider time = new();
-    private readonly List<Task<int>> daemons = [];
-    private FakeBrowserServer server = null!;
-    private bool browsersHaveAPage = true;
+    private InProcessSessions sessions = null!;
 
     public async ValueTask InitializeAsync()
     {
-        this.server = await FakeBrowserServer.StartAsync();
-        this.server.OnConnect = session =>
-        {
-            if (this.browsersHaveAPage)
-            {
-                session.AddContext();
-            }
-        };
+        this.sessions = await InProcessSessions.StartAsync();
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        foreach (string socketPath in Directory.GetFiles(this.directory, "*.sock"))
-        {
-            await this.RunAsync("session", "stop", "--session", Path.GetFileNameWithoutExtension(socketPath));
-        }
-
-        await Task.WhenAll(this.Daemons()).WaitAsync(TimeSpan.FromSeconds(10));
-        await this.server.DisposeAsync();
-        Directory.Delete(this.directory, true);
-    }
+    public ValueTask DisposeAsync() => this.sessions.DisposeAsync();
 
     [Fact]
     public async Task SessionStartsAndIsListedUntilItStops()
     {
-        ToolResult start = await this.RunAsync("session", "start", "--mask-passwords");
-        ToolResult list = await this.RunAsync("session", "list");
-        ToolResult stop = await this.RunAsync("session", "stop");
-        int daemonExitCode = await this.Daemons().Single().WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-        ToolResult after = await this.RunAsync("session", "list");
+        ToolResult start = await this.sessions.RunAsync("session", "start", "--mask-passwords");
+        ToolResult list = await this.sessions.RunAsync("session", "list");
+        ToolResult stop = await this.sessions.RunAsync("session", "stop");
+        int daemonExitCode = await this.sessions.Daemons().Single().WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        ToolResult after = await this.sessions.RunAsync("session", "list");
 
         Assert.Equal(0, start.ExitCode);
         Assert.Equal(["Started session 'default' (chrome)."], start.OutputLines);
-        Assert.Equal([$"default\tchrome\tstarted {this.time.GetUtcNow():O}"], list.OutputLines);
+        Assert.Equal([$"default\tchrome\tstarted {this.sessions.Time.GetUtcNow():O}"], list.OutputLines);
         Assert.Equal(["Stopped session 'default'."], stop.OutputLines);
         Assert.Equal(0, daemonExitCode);
         Assert.Equal(["No sessions are running."], after.OutputLines);
-        Assert.Empty(Directory.GetFiles(this.directory));
+        Assert.Empty(Directory.GetFiles(this.sessions.Directory));
 
         // The session records its page from the start, with no toolbar to cover the page.
-        JsonObject recorderStart = this.server.SessionFor("default").RemoteEnd.CommandsFor("script.callFunction").Select(command => command["params"]!.AsObject()).Single(parameters => ((string)parameters["functionDeclaration"]!).Contains("recorder.start"));
+        JsonObject recorderStart = this.sessions.Server.SessionFor("default").RemoteEnd.CommandsFor("script.callFunction").Select(command => command["params"]!.AsObject()).Single(parameters => ((string)parameters["functionDeclaration"]!).Contains("recorder.start"));
         Assert.False((bool)recorderStart["arguments"]![3]!["value"]!);
     }
 
     [Fact]
     public async Task EachNameRunsOneSession()
     {
-        await this.RunAsync("session", "start");
-        ToolResult second = await this.RunAsync("session", "start", "--session", "second", "--browser", "firefox", "--channel", "beta", "--headed", "--user-data-dir", this.directory, "--path", this.directory);
-        ToolResult again = await this.RunAsync("session", "start");
-        ToolResult list = await this.RunAsync("session", "list");
+        await this.sessions.RunAsync("session", "start");
+        ToolResult second = await this.sessions.RunAsync("session", "start", "--session", "second", "--browser", "firefox", "--channel", "beta", "--headed", "--user-data-dir", this.sessions.Directory, "--path", this.sessions.Directory);
+        ToolResult again = await this.sessions.RunAsync("session", "start");
+        ToolResult list = await this.sessions.RunAsync("session", "list");
 
         Assert.Equal(["Started session 'second' (firefox)."], second.OutputLines);
         Assert.Equal(1, again.ExitCode);
         Assert.Equal("error[session-exists]: A session named 'default' is running. — Stop it with 'dramaturge session stop', or name another with --session.", again.Error.Trim());
         Assert.Equal(["default", "second"], list.OutputLines.Select(line => line.Split('\t')[0]));
-        Assert.Equal(2, this.Daemons().Count);
+        Assert.Equal(2, this.sessions.Daemons().Count);
     }
 
     // Each result, or error, is one line of JSON on the output, and the exit code is as for text.
     [Fact]
     public async Task JsonWritesTheResultOrTheErrorAsOneLine()
     {
-        ToolResult start = await this.RunAsync("session", "start", "--json");
-        ToolResult list = await this.RunAsync("session", "list", "--json");
-        ToolResult again = await this.RunAsync("session", "start", "--json");
-        ToolResult stop = await this.RunAsync("session", "stop", "--json");
-        ToolResult none = await this.RunAsync("session", "stop", "--json");
-        ToolResult usage = await this.RunAsync("session", "start", "--idle-timeout", "soon", "--json");
+        ToolResult start = await this.sessions.RunAsync("session", "start", "--json");
+        ToolResult list = await this.sessions.RunAsync("session", "list", "--json");
+        ToolResult again = await this.sessions.RunAsync("session", "start", "--json");
+        ToolResult stop = await this.sessions.RunAsync("session", "stop", "--json");
+        ToolResult none = await this.sessions.RunAsync("session", "stop", "--json");
+        ToolResult usage = await this.sessions.RunAsync("session", "start", "--idle-timeout", "soon", "--json");
 
         Assert.Equal("{\"ok\":true,\"result\":{\"name\":\"default\",\"browser\":\"chrome\"}}", start.Output.Trim());
-        Assert.Equal($"{{\"ok\":true,\"result\":{{\"sessions\":[{{\"name\":\"default\",\"browser\":\"chrome\",\"started\":\"{this.time.GetUtcNow():O}\"}}]}}}}", list.Output.Trim());
+        Assert.Equal($"{{\"ok\":true,\"result\":{{\"sessions\":[{{\"name\":\"default\",\"browser\":\"chrome\",\"started\":\"{this.sessions.Time.GetUtcNow():O}\"}}]}}}}", list.Output.Trim());
         Assert.Equal(1, again.ExitCode);
         Assert.Equal("{\"ok\":false,\"error\":{\"code\":\"session-exists\",\"message\":\"A session named 'default' is running.\",\"hint\":\"Stop it with 'dramaturge session stop', or name another with --session.\"}}", again.Output.Trim());
         Assert.Equal("{\"ok\":true,\"result\":{\"name\":\"default\"}}", stop.Output.Trim());
@@ -112,7 +87,7 @@ public sealed class SessionTests : IAsyncLifetime
     [Fact]
     public async Task StoppingASessionThatIsNotRunningIsExitCodeThree()
     {
-        ToolResult stop = await this.RunAsync("session", "stop");
+        ToolResult stop = await this.sessions.RunAsync("session", "stop");
 
         Assert.Equal(3, stop.ExitCode);
         Assert.Equal("error[no-session]: No session named 'default' is running. — Start one with 'dramaturge session start'.", stop.Error.Trim());
@@ -122,12 +97,12 @@ public sealed class SessionTests : IAsyncLifetime
     [Fact]
     public async Task SocketThatNothingAnswersIsRemoved()
     {
-        string ghost = Path.Combine(this.directory, "ghost.sock");
+        string ghost = Path.Combine(this.sessions.Directory, "ghost.sock");
         File.WriteAllText(ghost, string.Empty);
-        ToolResult list = await this.RunAsync("session", "list");
+        ToolResult list = await this.sessions.RunAsync("session", "list");
         bool listRemovedIt = !File.Exists(ghost);
         File.WriteAllText(ghost, string.Empty);
-        ToolResult start = await this.RunAsync("session", "start", "--session", "ghost");
+        ToolResult start = await this.sessions.RunAsync("session", "start", "--session", "ghost");
 
         Assert.Equal(["No sessions are running."], list.OutputLines);
         Assert.True(listRemovedIt);
@@ -144,18 +119,18 @@ public sealed class SessionTests : IAsyncLifetime
     {
         string[] args = command == "start" && option == "--browser" ? ["session", "start", "--browser", value, "--channel", "canary"] : ["session", command, option, value];
 
-        ToolResult result = await this.RunAsync(args);
+        ToolResult result = await this.sessions.RunAsync(args);
 
         Assert.Equal(2, result.ExitCode);
         Assert.StartsWith("error[usage]: ", result.Error);
         Assert.Contains(expectedError, result.Error);
-        Assert.Empty(this.Daemons());
+        Assert.Empty(this.sessions.Daemons());
     }
 
     [Fact]
     public async Task HelpListsTheSessionCommandsButNotServe()
     {
-        ToolResult help = await this.RunAsync("session", "--help");
+        ToolResult help = await this.sessions.RunAsync("session", "--help");
 
         Assert.Equal(0, help.ExitCode);
         Assert.All(["start", "list", "stop"], command => Assert.Contains(command, help.Output));
@@ -166,67 +141,67 @@ public sealed class SessionTests : IAsyncLifetime
     [Fact]
     public async Task SessionIdleForItsTimeoutStops()
     {
-        await this.RunAsync("session", "start", "--idle-timeout", "1");
+        await this.sessions.RunAsync("session", "start", "--idle-timeout", "1");
 
-        this.time.Advance(TimeSpan.FromSeconds(59));
-        ToolResult first = await this.RunAsync("session", "list");
-        this.time.Advance(TimeSpan.FromSeconds(59));
-        ToolResult second = await this.RunAsync("session", "list");
-        this.time.Advance(TimeSpan.FromSeconds(60));
-        int exitCode = await this.Daemons().Single().WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        this.sessions.Time.Advance(TimeSpan.FromSeconds(59));
+        ToolResult first = await this.sessions.RunAsync("session", "list");
+        this.sessions.Time.Advance(TimeSpan.FromSeconds(59));
+        ToolResult second = await this.sessions.RunAsync("session", "list");
+        this.sessions.Time.Advance(TimeSpan.FromSeconds(60));
+        int exitCode = await this.sessions.Daemons().Single().WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 
         Assert.Single(first.OutputLines);
         Assert.Single(second.OutputLines);
         Assert.Equal(0, exitCode);
-        Assert.Empty(Directory.GetFiles(this.directory));
+        Assert.Empty(Directory.GetFiles(this.sessions.Directory));
     }
 
     [Fact]
     public async Task SessionStopsWhenItsBrowserGoesAway()
     {
-        await this.RunAsync("session", "start");
+        await this.sessions.RunAsync("session", "start");
 
-        await this.server.DisconnectAsync("default");
-        int exitCode = await this.Daemons().Single().WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        await this.sessions.Server.DisconnectAsync("default");
+        int exitCode = await this.sessions.Daemons().Single().WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
-        Assert.Empty(Directory.GetFiles(this.directory));
+        Assert.Empty(Directory.GetFiles(this.sessions.Directory));
     }
 
     [Fact]
     public async Task SessionOpensAPageInABrowserWithNone()
     {
-        this.browsersHaveAPage = false;
+        this.sessions.BrowsersHaveAPage = false;
 
-        ToolResult start = await this.RunAsync("session", "start");
+        ToolResult start = await this.sessions.RunAsync("session", "start");
 
         Assert.Equal(0, start.ExitCode);
-        Assert.Single(this.server.SessionFor("default").RemoteEnd.CommandsFor("browsingContext.create"));
+        Assert.Single(this.sessions.Server.SessionFor("default").RemoteEnd.CommandsFor("browsingContext.create"));
     }
 
     [Fact]
     public async Task BrowserThatCannotStartFailsTheStart()
     {
-        ToolResult start = await this.RunAsync("session", "start", "--session", Broken);
+        ToolResult start = await this.sessions.RunAsync("session", "start", "--session", InProcessSessions.Broken);
 
         Assert.Equal(1, start.ExitCode);
         Assert.StartsWith("error[start-failed]: The browser could not be started: ", start.Error);
         Assert.Empty(start.OutputLines);
-        Assert.Empty(Directory.GetFiles(this.directory));
+        Assert.Empty(Directory.GetFiles(this.sessions.Directory));
     }
 
     // A connection that sends nothing usable is answered, or dropped, without ending the session.
     [Fact]
     public async Task RequestThatIsNotACommandIsAnsweredWithAnError()
     {
-        await this.RunAsync("session", "start");
-        string socketPath = Path.Combine(this.directory, "default.sock");
+        await this.sessions.RunAsync("session", "start");
+        string socketPath = Path.Combine(this.sessions.Directory, "default.sock");
 
-        string notJson = await ExchangeAsync(socketPath, "not json\n");
-        string notObject = await ExchangeAsync(socketPath, "[1]\n");
-        string unknown = await ExchangeAsync(socketPath, "{\"command\":\"dance\"}\n");
-        await ExchangeAsync(socketPath, null);
-        ToolResult list = await this.RunAsync("session", "list");
+        string notJson = await InProcessSessions.ExchangeAsync(socketPath, "not json\n");
+        string notObject = await InProcessSessions.ExchangeAsync(socketPath, "[1]\n");
+        string unknown = await InProcessSessions.ExchangeAsync(socketPath, "{\"command\":\"dance\"}\n");
+        await InProcessSessions.ExchangeAsync(socketPath, null);
+        ToolResult list = await this.sessions.RunAsync("session", "list");
 
         Assert.Contains("\"code\":\"bad-request\"", notJson);
         Assert.Contains("\"code\":\"bad-request\"", notObject);
@@ -240,32 +215,18 @@ public sealed class SessionTests : IAsyncLifetime
     [InlineData("{\"ok\":false,\"error\":{\"code\":\"broken\",\"message\":\"It broke.\",\"hint\":\"Try again.\"}}", "error[broken]: It broke. — Try again.")]
     public async Task AnswerOtherThanAResultIsReported(string? answer, string expectedError)
     {
-        string socketPath = Path.Combine(this.directory, "other.sock");
+        string socketPath = Path.Combine(this.sessions.Directory, "other.sock");
         using Socket listener = new(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
         listener.Bind(new UnixDomainSocketEndPoint(socketPath));
         listener.Listen();
         Task answering = AnswerOnceAsync(listener, answer);
 
-        ToolResult stop = await this.RunAsync("session", "stop", "--session", "other");
+        ToolResult stop = await this.sessions.RunAsync("session", "stop", "--session", "other");
         await answering;
 
         Assert.Equal(1, stop.ExitCode);
         Assert.Equal(expectedError, stop.Error.Trim());
         Assert.False(File.Exists(socketPath));
-    }
-
-    private static async Task<string> ExchangeAsync(string socketPath, string? request)
-    {
-        using Socket socket = new(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-        await socket.ConnectAsync(new UnixDomainSocketEndPoint(socketPath), TestContext.Current.CancellationToken);
-        if (request is null)
-        {
-            return string.Empty;
-        }
-
-        await socket.SendAsync(Encoding.UTF8.GetBytes(request), TestContext.Current.CancellationToken);
-        using StreamReader reader = new(new NetworkStream(socket, ownsSocket: false));
-        return await reader.ReadLineAsync(TestContext.Current.CancellationToken) ?? string.Empty;
     }
 
     private static async Task AnswerOnceAsync(Socket listener, string? answer)
@@ -277,65 +238,6 @@ public sealed class SessionTests : IAsyncLifetime
         if (answer is not null)
         {
             await stream.WriteAsync(Encoding.UTF8.GetBytes(answer + "\n"), TestContext.Current.CancellationToken);
-        }
-    }
-
-    private List<Task<int>> Daemons()
-    {
-        lock (this.daemons)
-        {
-            return [.. this.daemons];
-        }
-    }
-
-    private SessionHost Host() => new()
-    {
-        Directory = this.directory,
-        StartDaemon = this.StartDaemonAsync,
-        TimeProvider = this.time,
-    };
-
-    private async Task<ToolResult> RunAsync(params string[] args)
-    {
-        StringWriter output = new();
-        StringWriter error = new();
-        int exitCode = await DramaturgeTool.RunAsync(args, output, error, sessionHost: this.Host(), cancellationToken: TestContext.Current.CancellationToken);
-        return new ToolResult(exitCode, output.ToString(), error.ToString());
-    }
-
-    // Serves the session in this process until it ends, answering as soon as it is ready or has failed.
-    private async Task<string?> StartDaemonAsync(IReadOnlyList<string> serveArguments, TextWriter error, CancellationToken cancellationToken)
-    {
-        string name = serveArguments.SkipWhile(argument => argument != "--session").Skip(1).FirstOrDefault() ?? "default";
-        Uri browser = name == Broken ? new Uri("ws://127.0.0.1:1/unreachable") : this.server.UrlFor(name);
-        ReadyWriter ready = new();
-        Task<int> serving = DramaturgeTool.RunAsync([.. serveArguments], ready, error, configureLauncher: _ => BrowserLauncher.Configure(BrowserKind.Chrome).ConnectToExisting(browser), sessionHost: this.Host(), cancellationToken: CancellationToken.None);
-        lock (this.daemons)
-        {
-            this.daemons.Add(serving);
-        }
-
-        return await ready.Said;
-    }
-
-    // Completes when the daemon says it is ready, with null, or that it failed, with why.
-    private sealed class ReadyWriter : StringWriter
-    {
-        private readonly TaskCompletionSource<string?> said = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public Task<string?> Said => this.said.Task;
-
-        public override void WriteLine(string? value)
-        {
-            base.WriteLine(value);
-            if (value == "ready")
-            {
-                this.said.TrySetResult(null);
-            }
-            else if (value?.StartsWith("failed ", StringComparison.Ordinal) == true)
-            {
-                this.said.TrySetResult(value.Substring("failed ".Length));
-            }
         }
     }
 }

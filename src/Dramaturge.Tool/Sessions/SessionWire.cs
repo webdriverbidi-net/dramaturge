@@ -38,10 +38,10 @@ internal static class SessionWire
     /// Writes a response that succeeded.
     /// </summary>
     /// <param name="stream">The connection.</param>
-    /// <param name="result">The result.</param>
+    /// <param name="result">The result: an object, as a dictionary or as JSON.</param>
     /// <param name="cancellationToken">A token that cancels the write.</param>
     /// <returns>A task that completes when the response is written.</returns>
-    public static Task WriteResultAsync(Stream stream, IReadOnlyDictionary<string, object?> result, CancellationToken cancellationToken)
+    public static Task WriteResultAsync(Stream stream, object result, CancellationToken cancellationToken)
     {
         return WriteLineAsync(stream, ResultMessage(result), cancellationToken);
     }
@@ -63,7 +63,7 @@ internal static class SessionWire
     /// </summary>
     /// <param name="result">The result.</param>
     /// <returns>The JSON.</returns>
-    public static string Result(IReadOnlyDictionary<string, object?> result) => Encoding.UTF8.GetString(Serialize(ResultMessage(result)));
+    public static string Result(object result) => Encoding.UTF8.GetString(Serialize(ResultMessage(result)));
 
     /// <summary>
     /// Gets a response that failed, as JSON.
@@ -98,7 +98,7 @@ internal static class SessionWire
         }
     }
 
-    private static Dictionary<string, object?> ResultMessage(IReadOnlyDictionary<string, object?> result) => new() { ["ok"] = true, ["result"] = result };
+    private static Dictionary<string, object?> ResultMessage(object result) => new() { ["ok"] = true, ["result"] = result };
 
     private static Dictionary<string, object?> ErrorMessage(SessionError error)
     {
@@ -124,7 +124,8 @@ internal static class SessionWire
         return buffer.ToArray();
     }
 
-    // The values a message holds: strings, booleans, times, nulls, objects, and lists.
+    // The values a message holds: strings, booleans, whole numbers, times, nulls, objects, lists, and JSON read from
+    // another message.
     private static void WriteValue(Utf8JsonWriter writer, object? value)
     {
         switch (value)
@@ -137,6 +138,12 @@ internal static class SessionWire
                 break;
             case bool flag:
                 writer.WriteBooleanValue(flag);
+                break;
+            case int number:
+                writer.WriteNumberValue(number);
+                break;
+            case JsonElement json:
+                json.WriteTo(writer);
                 break;
             case DateTimeOffset time:
                 writer.WriteStringValue(time.ToString("O", CultureInfo.InvariantCulture));
