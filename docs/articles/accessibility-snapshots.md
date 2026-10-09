@@ -25,7 +25,7 @@ For a page with a sign-in form and a consent frame, the snapshot reads:
     - button "Accept" [ref=f1e2]
 ```
 
-Each line is an element with a role, other than `generic`, `none`, or `presentation`; the content of other elements moves up to the nearest element that has a line. Hidden content is left out. A node's states follow its name, in the order `[checked]`, `[disabled]`, `[expanded]`, `[level=N]`, `[pressed]`, `[selected]`, and `[ref=…]`; a link shows its URL and a text box its placeholder.
+Each line is an element with a role, other than `generic`, `none`, or `presentation`; the content of other elements moves up to the nearest element that has a line. Hidden content is left out. A node's states follow its name, in the order `[checked]`, `[disabled]`, `[expanded]`, `[level=N]`, `[pressed]`, `[selected]`, and `[ref=…]`; a link shows its URL and a text box its placeholder. A text box's text is its value, except a password field's, which is a bullet (`•`) for each character, as assistive technology is given it, so a snapshot never holds a password.
 
 `Page.AriaSnapshotAsync` takes a snapshot of the page's body. `AriaSnapshotAsync` on a locator takes a snapshot of one element and its descendants, waiting until exactly one element matches:
 

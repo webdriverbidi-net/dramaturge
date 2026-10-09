@@ -62,6 +62,25 @@ public class AriaSnapshotIntegrationTests
         Assert.Equal("ref f1e2", accept.ToString());
     }
 
+    // A password is shown as assistive technology is given it, so a snapshot, and a template matched against one,
+    // never holds it.
+    [Theory]
+    [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
+    public async Task PasswordIsShownAsABulletForEachCharacter(BrowserKind browserKind)
+    {
+        await using TestPageServer server = await TestPageServer.StartAsync();
+        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        Page page = await OpenAsync(group, server, "recording-library.html");
+        ElementLocator password = page.Locate(new CssLocator("#password"));
+
+        await password.FillAsync("s3cret", cancellationToken: TestContext.Current.CancellationToken);
+        string snapshot = (await password.AriaSnapshotAsync(cancellationToken: TestContext.Current.CancellationToken)).ToString();
+
+        Assert.Equal("- textbox \"Password\" [ref=e1]: \u2022\u2022\u2022\u2022\u2022\u2022", snapshot);
+        Assert.DoesNotContain("s3cret", (await page.AriaSnapshotAsync(cancellationToken: TestContext.Current.CancellationToken)).ToString());
+        await Expect(password).ToMatchAriaSnapshotAsync("- textbox \"Password\": \u2022\u2022\u2022\u2022\u2022\u2022", cancellationToken: TestContext.Current.CancellationToken);
+    }
+
     [Theory]
     [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
     public async Task RefsLastAsLongAsTheirElements(BrowserKind browserKind)
