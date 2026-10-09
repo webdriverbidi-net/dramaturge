@@ -8,7 +8,9 @@ namespace Dramaturge.Tool;
 using System.CommandLine;
 using System.CommandLine.Help;
 using System.Globalization;
+using System.Text.Json;
 using Dramaturge.Browsers;
+using Dramaturge.Tool.Sessions;
 using WebDriverBiDi;
 
 /// <summary>
@@ -18,6 +20,8 @@ using WebDriverBiDi;
 public static class DramaturgeTool
 {
     private const string CommandName = "dramaturge";
+
+    private static readonly Dictionary<string, object?> NoArguments = [];
 
     /// <summary>
     /// Runs the tool.
@@ -34,12 +38,14 @@ public static class DramaturgeTool
     /// <see langword="null"/> for that one.
     /// </param>
     /// <param name="outputIsTerminal">A value indicating whether the output is a terminal, on which codegen shows the statement still open.</param>
+    /// <param name="sessionHost">Where sessions are kept and how their daemons start, or <see langword="null"/> for the defaults of <see cref="SessionHost"/>.</param>
     /// <param name="cancellationToken">A token that cancels the command.</param>
-    /// <returns>A task whose result is the exit code: 0 on success, and 1 if anything failed.</returns>
-    public static Task<int> RunAsync(string[] args, TextWriter output, TextWriter error, Func<string?, IProgress<BrowserDownloadProgress>, BrowserDownloadOptions>? createDownloadOptions = null, Func<BrowserLauncherBuilder, BrowserLauncherBuilder>? configureLauncher = null, bool outputIsTerminal = false, CancellationToken cancellationToken = default)
+    /// <returns>A task whose result is the exit code: 0 on success, 1 if anything failed, 2 for arguments that cannot be used, and 3 when the session named is not running.</returns>
+    public static Task<int> RunAsync(string[] args, TextWriter output, TextWriter error, Func<string?, IProgress<BrowserDownloadProgress>, BrowserDownloadOptions>? createDownloadOptions = null, Func<BrowserLauncherBuilder, BrowserLauncherBuilder>? configureLauncher = null, bool outputIsTerminal = false, SessionHost? sessionHost = null, CancellationToken cancellationToken = default)
     {
         createDownloadOptions ??= CreateDefaultDownloadOptions;
         configureLauncher ??= builder => builder;
+        sessionHost ??= new SessionHost();
         ProgressWriter progress = new(error);
         Option<string?> pathOption = new("--path")
         {
@@ -117,11 +123,163 @@ public static class DramaturgeTool
             error,
             token));
 
+        Command session = CreateSessionCommand(args, pathOption, createDownloadOptions, progress, configureLauncher, sessionHost, output, error);
+
         // A RootCommand would name itself for the entry assembly, Dramaturge.Tool, rather than the command.
-        Command root = new(CommandName, "Installs, lists, and removes the browsers and drivers that Dramaturge.Browsers caches, and records browser actions as C#.") { browsers, codegen };
+        Command root = new(CommandName, "Installs, lists, and removes the browsers and drivers that Dramaturge.Browsers caches, records browser actions as C#, and runs browser sessions that commands drive.") { browsers, codegen, session };
         root.Options.Add(new HelpOption());
         root.Options.Add(new VersionOption());
         return root.Parse(args).InvokeAsync(new InvocationConfiguration() { Output = output, Error = error }, cancellationToken);
+    }
+
+    // The settings start takes are passed on, as they were given, to the serve it starts.
+    private static Command CreateSessionCommand(string[] args, Option<string?> pathOption, Func<string?, IProgress<BrowserDownloadProgress>, BrowserDownloadOptions> createDownloadOptions, ProgressWriter progress, Func<BrowserLauncherBuilder, BrowserLauncherBuilder> configureLauncher, SessionHost host, TextWriter output, TextWriter error)
+    {
+        Option<string> sessionOption = new("--session") { Description = "The session's name.", DefaultValueFactory = _ => SessionPaths.DefaultName };
+        Option<BrowserKind> browserOption = new("--browser") { Description = "The browser to drive.", DefaultValueFactory = _ => BrowserKind.Chrome };
+        Option<string?> channelOption = new("--channel") { Description = "The browser's release channel, as browsers install names it: stable (the default), beta, dev, and canary for Chrome and Edge, or nightly and esr for Firefox." };
+        Option<bool> headedOption = new("--headed") { Description = "Show the browser's window. By default the browser has none." };
+        Option<string?> userDataDirectoryOption = new("--user-data-dir") { Description = "A profile directory for the browser to keep. By default it gets a temporary one." };
+        Option<int> idleTimeoutOption = new("--idle-timeout") { Description = "The minutes the session waits for a command before it stops.", DefaultValueFactory = _ => 30 };
+        Option<bool> maskPasswordsOption = new("--mask-passwords") { Description = "Write values typed into, or expected of, password fields in the session's code as a read of the DRAMATURGE_PASSWORD environment variable." };
+        Option<bool> detachedOption = new("--detached") { Hidden = true };
+        SessionSettings Settings(ParseResult parseResult) => new(
+            parseResult.GetValue(sessionOption)!,
+            parseResult.GetValue(browserOption),
+            parseResult.GetValue(channelOption),
+            parseResult.GetValue(headedOption),
+            parseResult.GetValue(userDataDirectoryOption),
+            TimeSpan.FromMinutes(parseResult.GetValue(idleTimeoutOption)),
+            parseResult.GetValue(maskPasswordsOption));
+
+        Command start = new("start", "Start a browser session that later commands drive, and that stops with session stop, when its browser closes, or when it is idle.") { sessionOption, browserOption, channelOption, headedOption, userDataDirectoryOption, idleTimeoutOption, maskPasswordsOption, pathOption };
+        start.SetAction((parseResult, token) => StartSessionAsync(["session", "serve", .. args.Skip(2)], Settings(parseResult), host, output, error, token));
+
+        Command serve = new("serve", "Serve a session; session start runs it.") { Hidden = true };
+        foreach (Option option in start.Options)
+        {
+            serve.Options.Add(option);
+        }
+
+        serve.Options.Add(detachedOption);
+        serve.SetAction((parseResult, token) => SessionDaemon.ServeAsync(
+            Settings(parseResult),
+            createDownloadOptions(parseResult.GetValue(pathOption), progress),
+            configureLauncher,
+            SessionPaths.Prepare(host.Directory),
+            host.TimeProvider,
+            parseResult.GetValue(detachedOption),
+            output,
+            error,
+            token));
+
+        Command list = new("list", "List the sessions running.");
+        list.SetAction((parseResult, token) => ListSessionsAsync(host, output, token));
+
+        Command stop = new("stop", "Stop a session, closing its browser.") { sessionOption };
+        stop.SetAction((parseResult, token) => StopSessionAsync(parseResult.GetValue(sessionOption)!, host, output, error, token));
+
+        return new Command("session", "Start, list, and stop browser sessions that commands drive.") { start, list, stop, serve };
+    }
+
+    // A session already running under the name is left alone; a socket nothing answers is what a session that did not
+    // stop cleanly left, and is removed.
+    private static async Task<int> StartSessionAsync(string[] serveArguments, SessionSettings settings, SessionHost host, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    {
+        string? problem = SessionPaths.CheckName(settings.Name);
+        if (problem is null && settings.IdleTimeout <= TimeSpan.Zero)
+        {
+            problem = "--idle-timeout must be at least 1 minute.";
+        }
+
+        try
+        {
+            _ = settings.Channel is null ? default : Target.ParseChannel(settings.Browser, settings.Channel);
+        }
+        catch (ArgumentException ex)
+        {
+            problem ??= ex.Message;
+        }
+
+        if (problem is not null)
+        {
+            WriteError(error, new SessionError("usage", problem));
+            return 2;
+        }
+
+        string socketPath = SessionPaths.SocketPath(SessionPaths.Prepare(host.Directory), settings.Name);
+        if (File.Exists(socketPath))
+        {
+            SessionReply reply = await SessionClient.SendAsync(socketPath, settings.Name, "status", NoArguments, cancellationToken).ConfigureAwait(false);
+            if (reply.Error is null)
+            {
+                WriteError(error, new SessionError("session-exists", $"A session named '{settings.Name}' is running.", "Stop it with 'dramaturge session stop', or name another with --session."));
+                return 1;
+            }
+
+            File.Delete(socketPath);
+        }
+
+        int exitCode = await host.StartDaemon(serveArguments, error, cancellationToken).ConfigureAwait(false);
+        if (exitCode == 0)
+        {
+            output.WriteLine($"Started session '{settings.Name}' ({settings.Browser.ToString().ToLowerInvariant()}).");
+        }
+
+        return exitCode;
+    }
+
+    // Each socket that answers is a session running; one that does not is removed.
+    private static async Task<int> ListSessionsAsync(SessionHost host, TextWriter output, CancellationToken cancellationToken)
+    {
+        int running = 0;
+        foreach (string socketPath in Directory.GetFiles(SessionPaths.Prepare(host.Directory), "*.sock").Order(StringComparer.Ordinal))
+        {
+            string name = Path.GetFileNameWithoutExtension(socketPath);
+            SessionReply reply = await SessionClient.SendAsync(socketPath, name, "status", NoArguments, cancellationToken).ConfigureAwait(false);
+            if (reply.Result is JsonElement status)
+            {
+                output.WriteLine($"{name}\t{status.GetProperty("browser").GetString()}\tstarted {status.GetProperty("started").GetString()}");
+                running++;
+            }
+            else
+            {
+                File.Delete(socketPath);
+            }
+        }
+
+        if (running == 0)
+        {
+            output.WriteLine("No sessions are running.");
+        }
+
+        return 0;
+    }
+
+    private static async Task<int> StopSessionAsync(string name, SessionHost host, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    {
+        if (SessionPaths.CheckName(name) is string problem)
+        {
+            WriteError(error, new SessionError("usage", problem));
+            return 2;
+        }
+
+        string socketPath = SessionPaths.SocketPath(SessionPaths.Prepare(host.Directory), name);
+        SessionReply reply = await SessionClient.SendAsync(socketPath, name, "stop", NoArguments, cancellationToken).ConfigureAwait(false);
+        if (reply.Error is SessionError failure)
+        {
+            File.Delete(socketPath);
+            WriteError(error, failure);
+            return failure.Code == SessionClient.NoSession ? 3 : 1;
+        }
+
+        output.WriteLine($"Stopped session '{name}'.");
+        return 0;
+    }
+
+    private static void WriteError(TextWriter error, SessionError failure)
+    {
+        error.WriteLine(failure.Hint is null ? $"error[{failure.Code}]: {failure.Message}" : $"error[{failure.Code}]: {failure.Message} — {failure.Hint}");
     }
 
     private static BrowserDownloadOptions CreateDefaultDownloadOptions(string? path, IProgress<BrowserDownloadProgress> progress)
