@@ -100,8 +100,9 @@ public sealed class Keyboard
         return this.PerformAsync(source, cancellationToken);
     }
 
-    private Task PerformAsync(KeySourceActions source, CancellationToken cancellationToken)
+    private async Task PerformAsync(KeySourceActions source, CancellationToken cancellationToken)
     {
-        return this.page.Browser.Group.Driver.Input.PerformActionsAsync(new PerformActionsCommandParameters(this.page.Id) { Actions = { source } }, cancellationToken: cancellationToken);
+        await this.page.Browser.Group.BringToFrontIfBehindAsync(this.page, null, cancellationToken).ConfigureAwait(false);
+        await this.page.Browser.Group.Driver.Input.PerformActionsAsync(new PerformActionsCommandParameters(this.page.Id) { Actions = { source } }, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 }

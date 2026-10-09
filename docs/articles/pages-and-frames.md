@@ -48,6 +48,8 @@ Answer the dialog from the observer, without awaiting the action that opened it:
 
 `RunAndWaitForPopupAsync` runs an action and returns the page it opened. `OnPopup` reports every page this page opens; each also appears in its browser's `Pages` and `OnPageCreated`, with this page as its `Opener`.
 
+A popup opens in front of the page that opened it, and a browser draws nothing in a page behind another, nor, in Chrome, gives it input. So an action, the page's `Keyboard` or `Mouse`, or a screenshot on a page that is not in front brings it to the front first, as a user switches to a tab to use it; reading the page, evaluating scripts, and expectations do not. Dramaturge knows which page is in front from the pages it opens and brings forward, so a tab you switch to yourself in a browser with a window is not noticed.
+
 ## Downloads
 
 [!code-csharp[Downloads](../code/PagesSamples.cs#Downloads)]

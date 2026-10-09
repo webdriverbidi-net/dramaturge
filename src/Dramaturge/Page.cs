@@ -543,6 +543,7 @@ public sealed class Page
         };
         return this.TraceAsync(Call("Screenshot", null, "screenshot"), this.CreateActionBudget(null, cancellationToken), async budget =>
         {
+            await this.Browser.Group.BringToFrontIfBehindAsync(this, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
             CaptureScreenshotCommandResult result = await this.Browser.Group.Driver.BrowsingContext.CaptureScreenshotAsync(parameters, cancellationToken: budget.CancellationToken).ConfigureAwait(false);
             return Convert.FromBase64String(result.Data);
         });
@@ -879,7 +880,11 @@ public sealed class Page
     /// <returns>A task that completes when the page is in front.</returns>
     public Task BringToFrontAsync(CancellationToken cancellationToken = default)
     {
-        return this.TraceAsync(Call("Bring to front", null, "bringToFront"), this.CreateActionBudget(null, cancellationToken), budget => this.Browser.Group.Driver.BrowsingContext.ActivateAsync(new ActivateCommandParameters(this.Id), cancellationToken: budget.CancellationToken));
+        return this.TraceAsync(Call("Bring to front", null, "bringToFront"), this.CreateActionBudget(null, cancellationToken), async budget =>
+        {
+            await this.Browser.Group.Driver.BrowsingContext.ActivateAsync(new ActivateCommandParameters(this.Id), cancellationToken: budget.CancellationToken).ConfigureAwait(false);
+            this.Browser.Group.RecordFront(this.Id, null);
+        });
     }
 
     /// <summary>
