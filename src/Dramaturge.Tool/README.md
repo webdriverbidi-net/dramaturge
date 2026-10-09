@@ -132,7 +132,8 @@ dramaturge session stop
 | `hover` *ref* | Moves the mouse over the element |
 | `upload` *ref* *file*... | Chooses files for a file input |
 | `screenshot -o` *file* `--ref` *ref* | Saves a PNG of the element alone |
-| `expect` *condition* | Waits until the condition is met, and asserts it, as the next section describes |
+| `expect` *condition* | Waits until the condition is met, and asserts it, as [Expectations](#expectations) describes |
+| `code` | Shows the session as C#, as [Exporting the Session as Code](#exporting-the-session-as-code) describes |
 
 `open`, `back`, `forward`, and `reload` show the address, title, and snapshot of the page they arrive at, taken as soon as the browser reports the navigation complete; `--no-snapshot` leaves the snapshot out. A tab that a page opens becomes one of the session's tabs, and when the current tab closes, the last tab left becomes the current one.
 
@@ -167,6 +168,16 @@ dramaturge expect text "Welcome, Ada"
 ```
 
 `hidden` and `enabled` are not recorded in the code, so a test from the session does not wait for them. When an expectation fails, what the page had instead follows the error between the page content lines, or, with `--json`, is the error's `details`. There is no `wait` command; `expect` waits.
+
+### Exporting the Session as Code
+
+`code` shows everything done in the session as C#, as `codegen` would have written it: a program, or, with `--target`, an xUnit, NUnit, MSTest, or TUnit test class. `-o` writes it to a file instead. The actions and expectations of the session become statements, with locators chosen as [Code Generation](https://webdriverbidi-net.github.io/dramaturge/articles/codegen.html#how-locators-are-chosen) describes, so that refs, which name elements only in the session, never appear in the code; the session's own navigations become `NavigateAsync`, and an action that navigated is wrapped in `RunAndWaitForNavigationAsync`.
+
+```bash
+dramaturge code --target xunit -o LoginTests.cs
+```
+
+The code is written without the page content lines, so that it can be redirected to a file, though it holds text from the pages, such as accessible names, in its string literals; review it as any generated code. A session started with `--dialogs accept` adds a note, on standard error, that the code does not answer dialogs.
 
 ## The Cache
 

@@ -26,6 +26,7 @@ internal sealed class SessionBrowser : IDisposable
     private const int EffectLimit = 100;
 
     private readonly Browser browser;
+    private readonly CodeRecording recording;
     private readonly SessionSettings settings;
     private readonly HashSet<string> allowedOrigins;
     private readonly List<string> uploadDirectories;
@@ -41,9 +42,10 @@ internal sealed class SessionBrowser : IDisposable
     private long consoleRead;
     private Page? current;
 
-    private SessionBrowser(Browser browser, SessionSettings settings)
+    private SessionBrowser(Browser browser, CodeRecording recording, SessionSettings settings)
     {
         this.browser = browser;
+        this.recording = recording;
         this.settings = settings;
         this.allowedOrigins = [.. settings.AllowedOrigins.Select(origin => Origin(new Uri(origin)))];
         this.uploadDirectories = [.. settings.UploadDirectories.Select(directory => RealPath(directory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar)];
@@ -54,12 +56,13 @@ internal sealed class SessionBrowser : IDisposable
     /// stops its pages from navigating to others.
     /// </summary>
     /// <param name="browser">The browser.</param>
+    /// <param name="recording">The recording of the session as code.</param>
     /// <param name="settings">The session's settings.</param>
     /// <param name="cancellationToken">A token that cancels the start.</param>
     /// <returns>The session's browser.</returns>
-    public static async Task<SessionBrowser> StartAsync(Browser browser, SessionSettings settings, CancellationToken cancellationToken)
+    public static async Task<SessionBrowser> StartAsync(Browser browser, CodeRecording recording, SessionSettings settings, CancellationToken cancellationToken)
     {
-        SessionBrowser session = new(browser, settings);
+        SessionBrowser session = new(browser, recording, settings);
         lock (session.lockObject)
         {
             session.observers.Add(browser.Group.Driver.BrowsingContext.OnNavigationCommitted.AddObserver(e => session.OnDocument(e.BrowsingContextId)));
@@ -157,6 +160,7 @@ internal sealed class SessionBrowser : IDisposable
                 "expect" => Texts(arguments, "condition") is List<string> words ? await this.ExpectAsync(words, Number(arguments, "timeout"), cancellationToken).ConfigureAwait(false) : BadArguments(command),
                 "upload" => Texts(arguments, "files") is List<string> files ? await this.UploadAsync(arguments, files, snapshot, cancellationToken).ConfigureAwait(false) : BadArguments(command),
                 "console" => this.ReadConsole(Flag(arguments, "all")),
+                "code" => await this.WriteCodeAsync(Text(arguments, "target"), Text(arguments, "path"), cancellationToken).ConfigureAwait(false),
                 _ => null,
             };
         }
@@ -656,6 +660,41 @@ internal sealed class SessionBrowser : IDisposable
                 ? new Target(locator, latest, null)
                 : new Target(null, null, DaemonAnswer.Failed("stale-ref", $"{reference} is from a document its frame has since replaced.", SnapshotHint));
         }
+    }
+
+    // The session's code for a target, the program by default, as text, or written to a file.
+    private async Task<DaemonAnswer> WriteCodeAsync(string? targetName, string? path, CancellationToken cancellationToken)
+    {
+        if (Enum.GetNames<CodeTarget>().FirstOrDefault(name => string.Equals(name, targetName ?? nameof(CodeTarget.Program), StringComparison.OrdinalIgnoreCase)) is not string name)
+        {
+            return BadArguments("code");
+        }
+
+        CodeTarget target = Enum.Parse<CodeTarget>(name);
+        string code = await this.recording.GetCodeAsync(target).ConfigureAwait(false);
+        Dictionary<string, object?> result = new() { ["target"] = name.ToLowerInvariant() };
+        if (path is null)
+        {
+            result["code"] = code;
+        }
+        else
+        {
+            try
+            {
+                await File.WriteAllTextAsync(path, code, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return DaemonAnswer.Failed("write-failed", $"The code could not be written to {path}: {ex.Message}");
+            }
+
+            result["path"] = path;
+        }
+
+        result["notes"] = this.settings.Dialogs == UserPromptHandlerType.Accept
+            ? (string[])["The session accepted dialogs, but the code does not answer them, so they are dismissed when it runs; set the browser's unhandledPromptBehavior to accept them."]
+            : [];
+        return DaemonAnswer.Of(result);
     }
 
     // The messages since the last read, or all those kept, each with its tab, if the tab is still open.

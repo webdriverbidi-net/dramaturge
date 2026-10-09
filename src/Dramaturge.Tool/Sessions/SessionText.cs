@@ -45,6 +45,9 @@ internal static class SessionText
             "expect" => result.TryGetProperty("template", out JsonElement template)
                 ? [$"Passed: {result.GetProperty("condition").GetString()}.", .. Content(template.GetString()!.Split('\n'))]
                 : [$"Passed: {result.GetProperty("condition").GetString()}."],
+            "code" => result.TryGetProperty("path", out JsonElement path)
+                ? [$"Wrote the code for {result.GetProperty("target").GetString()} to {path.GetString()}."]
+                : result.GetProperty("code").GetString()!.TrimEnd('\n').Split('\n'),
             "screenshot" => [$"Saved a screenshot of {result.GetProperty("bytes").GetInt32()} bytes to {result.GetProperty("path").GetString()}"],
             _ => Console(result.GetProperty("messages")),
         };

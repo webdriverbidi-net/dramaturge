@@ -167,6 +167,25 @@ public class CodeRecordingTests
             Statements(code));
     }
 
+    [Fact]
+    public async Task CodeIsWrittenForAnyTarget()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+
+        await SendAsync(driver, session, channel, page.Id, Action("check", "#agree"));
+        string test = await recording.GetCodeAsync(CodeTarget.Xunit);
+        string program = await recording.GetCodeAsync(CodeTarget.Program);
+
+        Assert.Contains("public class RecordedTests : PageTest", test);
+        Assert.Contains("        await page.Locate(new CssLocator(\"#agree\")).CheckAsync();\n", test);
+        Assert.Equal(recording.Code, program);
+        Assert.DoesNotContain("PageTest", program);
+        Assert.Equal(program, await recording.StopAsync(TestContext.Current.CancellationToken));
+    }
+
     [Theory]
     [InlineData(CodeTarget.Xunit, "Dramaturge.Xunit", "Xunit", "", "[Fact]")]
     [InlineData(CodeTarget.NUnit, "Dramaturge.NUnit", "NUnit.Framework", "", "[Test]")]
