@@ -50,8 +50,10 @@ A click made to pick or assert is not passed to the page, so a link is not follo
 | Type into a field or an editable element | `FillAsync` with the whole value |
 | Press a key that does not type, such as Enter or Tab, or a key with Control, Alt, or Meta | `PressAsync`, with a member of `Keys` or the character |
 | Choose options in a select | `SelectOptionAsync` with the options' values |
-| Choose files for a file input | `SetInputFilesAsync` with the files' names, which you must replace with paths |
+| Choose files for a file input | `SetInputFilesAsync` with the files' names, under a comment saying to replace each with its path, since the page knows only the names |
 | Open an address yourself | `NavigateAsync` |
+| Go back or forward with the browser | `GoBackAsync` or `GoForwardAsync`, where the page reports the step, which Chrome does not always do; otherwise `NavigateAsync` to the page arrived at |
+| Reload with the browser | `NavigateAsync` to the same address |
 | Close a page other than the first | `CloseAsync` |
 
 What an action causes is recorded with it:
@@ -109,7 +111,7 @@ A browser records code once at a time; starting another recording while one is r
 
 ## Limitations
 
-- **Navigations:** a navigation is recorded as the effect of the action whose statement is still open when it starts, unless that action has navigated already. An address you open right after an action that did not navigate is therefore recorded as that action's navigation; another action, or a toolbar button, completes the action first. On Chrome, which sometimes loses the page's report of a navigation it starts itself, such a navigation, as a redirect by script, can be recorded as `NavigateAsync` as well.
+- **Navigations:** a navigation is recorded as the effect of the action whose statement is still open when it starts, unless that action has navigated already. An address you open right after an action that did not navigate is therefore recorded as that action's navigation; another action, or a toolbar button, completes the action first. On Chrome, which sometimes loses the page's report of a navigation it starts itself, such a navigation, as a redirect by script, can be recorded as `NavigateAsync` as well. A page that goes back or forward in its history by itself, with no action of yours before it, is recorded as if you had pressed the browser's button.
 - **Chrome popups:** Chrome does not answer script commands in a page that a script opened ([issue 571161446](https://issues.chromium.org/issues/571161446)), so the popup itself is recorded but nothing done in it is, and stopping waits for the group's `NavigationTimeout` for the popup.
 - **Chrome frames:** Chrome's role lookup does not find elements in a same-origin child frame ([issue 571486947](https://issues.chromium.org/issues/571486947)), so an element there is found by its text or attributes instead of its role.
 - **Firefox text:** Firefox cannot look elements up by their rendered text, so `GetByText` is never chosen there.

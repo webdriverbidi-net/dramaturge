@@ -194,10 +194,12 @@
       pressed = element instanceof HTMLInputElement ? { element, checked: element.checked } : null;
     };
     document.addEventListener('pointerdown', onPointerDown, true);
-    // A navigation the document starts is reported, so that one without a report is known to be the browser's own.
+    // A navigation the document starts is reported, so that one without a report is known to be the browser's own; a
+    // traversal of the history is reported with its steps, negative for back.
     const onNavigate = (event) => {
       if (!event.destination.sameDocument) {
-        send([JSON.stringify({ kind: 'navigate', url: event.destination.url }), null]);
+        const steps = event.navigationType === 'traverse' && navigation.currentEntry ? event.destination.index - navigation.currentEntry.index : null;
+        send([JSON.stringify({ kind: 'navigate', url: event.destination.url, steps }), null]);
       }
     };
     navigation.addEventListener('navigate', onNavigate);
@@ -287,9 +289,9 @@
       session?.report(element, { kind: 'select', values: Array.from(element.selectedOptions, (option) => option.value) });
     },
 
-    // Files the library set, by their paths.
+    // Files the library set, by their paths, where the page knows only their names.
     reportFiles(element, files) {
-      session?.report(element, { kind: 'setInputFiles', files });
+      session?.report(element, { kind: 'setInputFiles', files, paths: true });
     },
 
     // An assertion the library met, of a kind the toolbar adds, with its value: the text, the value, whether the
