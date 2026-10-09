@@ -100,10 +100,13 @@ When none finds the element alone, a locator is looked for within the element's 
 
 [!code-csharp[Record Code](../code/CodegenSamples.cs#RecordCode)]
 
+Dramaturge's own calls on a recording browser's pages are recorded too: `NavigateAsync`, `ReloadAsync`, `GoBackAsync`, and `GoForwardAsync` as themselves, never as the effect of an earlier action; `SelectOptionAsync`, whose events the page does not take for a user's; and `SetInputFilesAsync` with the paths it was given rather than the files' names. Its other actions are recorded from the events they cause, as a user's are.
+
 A browser records code once at a time; starting another recording while one is running throws `InvalidOperationException`. Recording starts in the pages already open before `RecordCodeAsync` returns, and in each page or frame loaded later as its document loads.
 
 ## Limitations
 
+- **Navigations:** a navigation is recorded as the effect of the action whose statement is still open when it starts, unless that action has navigated already. An address you open right after an action that did not navigate is therefore recorded as that action's navigation; another action, or a toolbar button, completes the action first. On Chrome, which sometimes loses the page's report of a navigation it starts itself, such a navigation, as a redirect by script, can be recorded as `NavigateAsync` as well.
 - **Chrome popups:** Chrome does not answer script commands in a page that a script opened ([issue 571161446](https://issues.chromium.org/issues/571161446)), so the popup itself is recorded but nothing done in it is, and stopping waits for the group's `NavigationTimeout` for the popup.
 - **Chrome frames:** Chrome's role lookup does not find elements in a same-origin child frame ([issue 571486947](https://issues.chromium.org/issues/571486947)), so an element there is found by its text or attributes instead of its role.
 - **Firefox text:** Firefox cannot look elements up by their rendered text, so `GetByText` is never chosen there.

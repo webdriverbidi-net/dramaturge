@@ -88,6 +88,11 @@ public sealed class Browser
     internal TraceRecording? ActiveTrace => Volatile.Read(ref this.activeTrace);
 
     /// <summary>
+    /// Gets the browser's code recording, or <see langword="null"/> when it is not recording code.
+    /// </summary>
+    internal CodeRecording? ActiveCodeRecording => Volatile.Read(ref this.activeCodeRecording);
+
+    /// <summary>
     /// Opens a page in the browser.
     /// </summary>
     /// <param name="type">Whether the page opens as a tab or a window.</param>

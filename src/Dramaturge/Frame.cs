@@ -508,7 +508,7 @@ public sealed class Frame
     internal async Task<string> NavigateCoreAsync(string url, ReadinessState wait, TimeBudget budget)
     {
         NavigateCommandParameters parameters = new(this.Id, url) { Wait = wait };
-        NavigateCommandResult result = await this.Group.Driver.BrowsingContext.NavigateAsync(parameters, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
+        NavigateCommandResult result = await CodeRecording.RunNavigationAsync(this, $"NavigateAsync({CodeWriter.Literal(url)})", () => this.Group.Driver.BrowsingContext.NavigateAsync(parameters, budget.Remaining, budget.CancellationToken)).ConfigureAwait(false);
         return result.Url;
     }
 
@@ -521,7 +521,7 @@ public sealed class Frame
     internal async Task<string> ReloadCoreAsync(ReadinessState wait, TimeBudget budget)
     {
         ReloadCommandParameters parameters = new(this.Id) { Wait = wait };
-        ReloadCommandResult result = await this.Group.Driver.BrowsingContext.ReloadAsync(parameters, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
+        ReloadCommandResult result = await CodeRecording.RunNavigationAsync(this, "ReloadAsync()", () => this.Group.Driver.BrowsingContext.ReloadAsync(parameters, budget.Remaining, budget.CancellationToken)).ConfigureAwait(false);
         return result.Url;
     }
 
