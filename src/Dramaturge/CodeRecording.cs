@@ -28,6 +28,7 @@ public sealed class CodeRecording : IAsyncDisposable
     private readonly object lockObject = new();
     private readonly List<IDisposable> observers = [];
     private readonly List<Task> documentCalls = [];
+    private readonly Dictionary<string, Task> installs = [];
     private readonly List<string> statements = [];
     private readonly HashSet<string> namespaces = [];
     private readonly Dictionary<Page, string> pageVariables = [];
@@ -395,9 +396,15 @@ public sealed class CodeRecording : IAsyncDisposable
             layout = this.toolbarLayout;
         }
 
-        return this.RunStepAsync(
+        Task installed = this.RunStepAsync(
             $"Starting the code recording in browsing context {contextId}",
             () => this.browser.Group.ScriptHost.CallRecorderAsync(contextId, "(recorder, send, testIdAttribute, mode, showToolbar, layout) => recorder.start(send, testIdAttribute, mode, showToolbar, layout)", [channel, LocalValue.String(this.browser.Group.Options.TestIdAttribute), LocalValue.String(current), LocalValue.Boolean(this.showToolbar), layout is null ? LocalValue.Null : LocalValue.String(layout)], this.CreateBudget(CancellationToken.None)));
+        lock (this.lockObject)
+        {
+            this.installs[contextId] = installed;
+        }
+
+        return installed;
     }
 
     // The sender's frame is found as the message arrives: its page may close before the message is handled.
@@ -407,7 +414,7 @@ public sealed class CodeRecording : IAsyncDisposable
         if (e.ChannelId == this.channelId && frame?.Page.Browser == this.browser)
         {
             RemoteValueList data = e.Data.As<CollectionRemoteValue>().Value!;
-            if (!this.TakeToolbarLayout(data))
+            if (!this.TakeToolbarState(data))
             {
                 CancellationToken lookups = this.GetLookupToken(frame);
                 this.Enqueue(() => this.HandleAsync(frame, data, lookups));
@@ -578,21 +585,27 @@ public sealed class CodeRecording : IAsyncDisposable
 
     // The toolbar's latest position and state are where it starts in each document that loads later, so its message
     // is taken as it arrives, before any later document's load is handled.
-    private bool TakeToolbarLayout(RemoteValueList data)
+    // The toolbar's layout and mode are kept as their messages arrive, so that a document starting before the queue
+    // reaches them starts with them; a mode is still handled in turn, to settle the open statement and reach the
+    // other documents. Returns whether the message needs nothing more.
+    private bool TakeToolbarState(RemoteValueList data)
     {
         string json = data[0].As<StringRemoteValue>().Value;
         using JsonDocument document = JsonDocument.Parse(json);
-        if (document.RootElement.GetProperty("kind").GetString() != "toolbar")
-        {
-            return false;
-        }
-
+        string? kind = document.RootElement.GetProperty("kind").GetString();
         lock (this.lockObject)
         {
-            this.toolbarLayout = json;
+            if (kind == "mode")
+            {
+                this.mode = document.RootElement.GetProperty("mode").GetString()!;
+            }
+            else if (kind == "toolbar")
+            {
+                this.toolbarLayout = json;
+            }
         }
 
-        return true;
+        return kind == "toolbar";
     }
 
     // A document reports its navigation before the navigation commits, though not always before it starts.
@@ -893,11 +906,17 @@ public sealed class CodeRecording : IAsyncDisposable
     {
         lock (this.lockObject)
         {
+            // A document still starting has its mode set once it has started, which would otherwise undo it.
             foreach (Frame frame in this.browser.Pages.SelectMany(page => page.Frames).Where(frame => frame != source))
             {
+                Task installed = this.installs.TryGetValue(frame.Id, out Task? install) ? install : Task.CompletedTask;
                 this.documentCalls.Add(this.RunStepAsync(
                     $"Setting the code recording's mode in browsing context {frame.Id}",
-                    () => this.browser.Group.ScriptHost.CallRecorderAsync(frame.Id, "(recorder, mode) => recorder.setMode(mode)", [LocalValue.String(chosenMode)], this.CreateBudget(CancellationToken.None))));
+                    async () =>
+                    {
+                        await installed.ConfigureAwait(false);
+                        await this.browser.Group.ScriptHost.CallRecorderAsync(frame.Id, "(recorder, mode) => recorder.setMode(mode)", [LocalValue.String(chosenMode)], this.CreateBudget(CancellationToken.None)).ConfigureAwait(false);
+                    }));
             }
         }
     }
