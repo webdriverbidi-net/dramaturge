@@ -517,6 +517,63 @@ public class CodeRecordingTests
         Assert.Contains("using static Dramaturge.Assertions;\n", code);
     }
 
+    // A mode is kept as its message arrives, so a document that starts before the recording reaches the message in
+    // its queue, here held by a lookup, starts with it.
+    [Fact]
+    public async Task DocumentStartingBeforeTheModeIsHandledStartsWithIt()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.RemoteEnd.HoldAnswers("browsingContext.locateNodes", release.Task);
+
+        JsonObject click = Click("#go");
+        click["target"]!["role"] = "button";
+        click["target"]!["name"] = "Go";
+        await SendAsync(driver, session, channel, page.Id, click);
+        await session.RemoteEnd.WaitForCommandAsync("browsingContext.locateNodes");
+        await SendAsync(driver, session, channel, page.Id, Mode("pick"));
+        Page second = await page.Browser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await RaiseDomContentLoadedAsync(session, second.Id);
+        await WaitUntilAsync(() => Starts(session, second.Id).Count == 1);
+        release.SetResult();
+        await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal("pick", (string?)Starts(session, second.Id).Single()["arguments"]![2]!["value"]);
+    }
+
+    // A mode chosen while a document is still starting is set there once it has started, or the start would undo it;
+    // in a document not yet loaded, which has not started, it is set at once.
+    [Fact]
+    public async Task ModeIsSetInADocumentOnlyOnceItHasStarted()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+        TaskCompletionSource<string> settled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        recording.OnStatement.AddObserver(e => settled.TrySetResult(e.Statement));
+        Page second = await page.Browser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        Page notLoaded = await page.Browser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.RemoteEnd.HoldAnswers("script.callFunction", release.Task);
+
+        await RaiseDomContentLoadedAsync(session, second.Id);
+        await WaitUntilAsync(() => Starts(session, second.Id).Count == 1);
+        await SendAsync(driver, session, channel, page.Id, Click("#go"));
+        await SendAsync(driver, session, channel, page.Id, Mode("pick"));
+        await settled.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => ModeSets(session, notLoaded.Id).Count == 1);
+        int setWhileStarting = ModeSets(session, second.Id).Count;
+        release.SetResult();
+        await WaitUntilAsync(() => ModeSets(session, second.Id).Count == 1);
+        await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, setWhileStarting);
+    }
+
     [Fact]
     public async Task ToolbarModeSettlesThePendingStatementAndIsSetInTheOtherDocuments()
     {
@@ -723,6 +780,15 @@ public class CodeRecordingTests
     }
 
     private static JsonObject Mode(string mode) => new() { ["kind"] = "mode", ["mode"] = mode };
+
+    private static List<JsonObject> Starts(FakeSession session, string contextId) => RecorderCallsIn(session, contextId, "recorder.start");
+
+    private static List<JsonObject> ModeSets(FakeSession session, string contextId) => RecorderCallsIn(session, contextId, "recorder.setMode");
+
+    private static List<JsonObject> RecorderCallsIn(FakeSession session, string contextId, string function)
+    {
+        return [.. session.RemoteEnd.CommandsFor("script.callFunction").Select(call => call["params"]!.AsObject()).Where(call => (string?)call["target"]!["context"] == contextId && ((string)call["functionDeclaration"]!).Contains(function))];
+    }
 
     private static JsonObject Fill(string cssPath, string value) => Action("fill", cssPath, new JsonField("value", value));
 
