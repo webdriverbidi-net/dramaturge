@@ -154,11 +154,19 @@ public sealed class FakeBrowserSetup : IDisposable
         this.recordingDirectory.Dispose();
     }
 
+    // The fake browser may be appending as the log is read, so the file is shared for writing, and a last line not
+    // yet ended is left for a later read.
     private IEnumerable<JsonObject> ReadLog(string entryKind)
     {
-        return File.Exists(this.LogFile)
-            ? File.ReadAllLines(this.LogFile).Select(line => JsonNode.Parse(line)!.AsObject()).Where(entry => entry.ContainsKey(entryKind))
-            : [];
+        if (!File.Exists(this.LogFile))
+        {
+            return [];
+        }
+
+        using FileStream stream = new(this.LogFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using StreamReader reader = new(stream);
+        string[] lines = reader.ReadToEnd().Split('\n');
+        return [.. lines.Take(lines.Length - 1).Select(line => JsonNode.Parse(line)!.AsObject()).Where(entry => entry.ContainsKey(entryKind))];
     }
 }
 
