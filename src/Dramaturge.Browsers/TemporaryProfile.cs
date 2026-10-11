@@ -68,7 +68,14 @@ internal sealed class TemporaryProfile
             return;
         }
 
-        File.WriteAllText(System.IO.Path.Combine(this.Path, OwnerFileName), string.Format(CultureInfo.InvariantCulture, "{0}\n{1}", process.Id, startTimeTicks));
+        try
+        {
+            File.WriteAllText(System.IO.Path.Combine(this.Path, OwnerFileName), string.Format(CultureInfo.InvariantCulture, "{0}\n{1}", process.Id, startTimeTicks));
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+        {
+            // Another process holds the file open; the profile stays with its previous owner.
+        }
     }
 
     /// <summary>
@@ -115,7 +122,7 @@ internal sealed class TemporaryProfile
         try
         {
             string ownerFile = System.IO.Path.Combine(profileDirectory, OwnerFileName);
-            string[] owner = File.Exists(ownerFile) ? File.ReadAllText(ownerFile).Split('\n') : [];
+            string[] owner = File.Exists(ownerFile) ? ReadOwnerFile(ownerFile).Split('\n') : [];
             if (owner.Length == 2
                 && int.TryParse(owner[0], NumberStyles.None, CultureInfo.InvariantCulture, out int processId)
                 && long.TryParse(owner[1], NumberStyles.None, CultureInfo.InvariantCulture, out long startTimeTicks))
@@ -129,6 +136,14 @@ internal sealed class TemporaryProfile
         {
             return false;
         }
+    }
+
+    // Shared for writing, so that a scan never blocks another launch recording its owner.
+    private static string ReadOwnerFile(string path)
+    {
+        using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using StreamReader reader = new(stream);
+        return reader.ReadToEnd();
     }
 
     // A process ID can be reused, so the owner is only running if the start time matches too.
