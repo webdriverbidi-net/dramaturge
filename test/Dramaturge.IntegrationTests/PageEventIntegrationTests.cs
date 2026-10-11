@@ -185,8 +185,17 @@ public class PageEventIntegrationTests
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
         await page.NavigateAsync(server.UrlFor("recording.html"), cancellationToken: TestContext.Current.CancellationToken);
         await page.EvaluateAsync<object?>("() => { window.clicks = 0; document.getElementById('go').addEventListener('click', () => window.clicks++); }", cancellationToken: TestContext.Current.CancellationToken);
-        await page.RunAndWaitForPopupAsync(() => page.EvaluateAsync<object?>($"() => {{ window.open('{server.UrlFor("second.html")}'); }}", cancellationToken: TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken);
-        Assert.Equal("hidden", await page.EvaluateAsync<string>("() => document.visibilityState", cancellationToken: TestContext.Current.CancellationToken));
+        await page.EvaluateAsync<object?>("() => { window.hidden = new Promise((resolve) => document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { resolve('hidden'); } })); }", cancellationToken: TestContext.Current.CancellationToken);
+        Page popup = await page.RunAndWaitForPopupAsync(() => page.EvaluateAsync<object?>($"() => {{ window.open('{server.UrlFor("second.html")}'); }}", cancellationToken: TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken);
+
+        // The opener is hidden once the browser has switched to the popup, which may be after the popup is reported.
+        string visibility = await page.EvaluateAsync<string>("() => Promise.race([window.hidden, new Promise((resolve) => setTimeout(() => resolve(document.visibilityState), 10000))])", cancellationToken: TestContext.Current.CancellationToken);
+        if (visibility != "hidden")
+        {
+            GetTreeCommandResult tree = await group.Driver.BrowsingContext.GetTreeAsync(new GetTreeCommandParameters(), cancellationToken: TestContext.Current.CancellationToken);
+            string windows = string.Join(", ", tree.ContextTree.Select(context => $"{(context.BrowsingContextId == page.Id ? "opener" : context.BrowsingContextId == popup.Id ? "popup" : "other")} in window {context.ClientWindowId}"));
+            Assert.Fail($"The opener stayed {visibility} for 10 seconds after its popup opened ({windows}).");
+        }
 
         BoundingBox go = (await page.Locate(new CssLocator("#go")).BoundingBoxAsync(cancellationToken: TestContext.Current.CancellationToken))!;
         await page.Mouse.ClickAsync(go.X + (go.Width / 2), go.Y + (go.Height / 2), cancellationToken: TestContext.Current.CancellationToken);
