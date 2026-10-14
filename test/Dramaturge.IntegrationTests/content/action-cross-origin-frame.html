@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Action cross-origin frame</title>
+  </head>
+  <body>
+    <div style="height: 2000px">Spacer</div>
+    <iframe id="inner" style="margin-left: 150px; width: 300px; height: 200px"></iframe>
+    <div style="height: 2000px">Spacer</div>
+    <script>
+      document.getElementById('inner').src = `${location.protocol}//127.0.0.1:${location.port}/action-child.html`;
+    </script>
+  </body>
+</html>
