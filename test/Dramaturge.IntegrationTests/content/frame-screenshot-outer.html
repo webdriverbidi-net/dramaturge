@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; }
+      body { background: rgb(0, 255, 255); }
+      .spacer { height: 400px; }
+      iframe { display: block; margin-left: 20px; width: 250px; height: 150px; border: 3px solid #000; padding: 2px; }
+    </style>
+  </head>
+  <body>
+    <iframe id="inner"></iframe>
+    <div class="spacer"></div>
+    <script>
+      document.getElementById('inner').src = `${location.protocol}//127.0.0.1:${location.port}/frame-screenshot-child.html`;
+    </script>
+  </body>
+</html>

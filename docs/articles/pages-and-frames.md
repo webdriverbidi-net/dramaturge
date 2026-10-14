@@ -62,7 +62,7 @@ A popup opens in front of the page that opened it, and a browser draws nothing i
 
 A page screenshot captures the viewport, the whole page, or a clip, as PNG unless another `ImageFormat` is given. An element's screenshot captures the element, whether or not it is scrolled into view. `PdfAsync` prints the page as a PDF. `SetViewportSizeAsync` sets the size of the page's viewport in CSS pixels, until `ResetViewportSizeAsync`.
 
-> **Chrome:** Chrome captures screenshots only of top-level browsing contexts, so a screenshot of an element in an iframe fails in Chrome ([issue 571157929](https://issues.chromium.org/issues/571157929)).
+> **Chrome:** Chrome captures screenshots only of top-level browsing contexts, and will not capture frames ([issue 571157929](https://issues.chromium.org/issues/571157929), closed as Won't Fix). In Chrome, a screenshot of an element in an iframe is taken from the page instead: the element is scrolled to the middle of its frames, and the image is the part of it they show, along with anything drawn over it, such as a fixed header or the frames' scroll bars. A transformed frame element, such as a scaled or rotated iframe, makes that image wrong.
 
 ## Video
 

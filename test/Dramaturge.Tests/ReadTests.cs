@@ -212,6 +212,62 @@ public class ReadTests
         Assert.Equal("image/jpeg", (string?)parameters["format"]!["type"]);
     }
 
+    [Fact]
+    public async Task ScreenshotInAFrameTheBrowserCannotCaptureClipsThePageToWhatItsFramesShow()
+    {
+        (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider time) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        Frame frame = await AnswerNestedFramesAsync(driver, session, page, Object(new JsonField("left", Number(-10)), new JsonField("top", Number(5)), new JsonField("right", Number(50)), new JsonField("bottom", Number(300))));
+        session.RemoteEnd.AnswerWith("browsingContext.captureScreenshot", parameters => (string?)parameters["context"] == page.Id
+            ? new FakeResponse(new JsonObject() { ["data"] = Convert.ToBase64String([1, 2, 3]) })
+            : FakeResponse.Failure("unsupported operation", "Non-top-level 'context' is currently not supported"));
+        ElementLocator locator = frame.Locate(new CssLocator("div"));
+
+        byte[] first = await DriveAsync(time, locator.ScreenshotAsync(new ImageFormat() { Type = "image/jpeg" }, cancellationToken: TestContext.Current.CancellationToken));
+        byte[] second = await DriveAsync(time, locator.ScreenshotAsync(cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Equal([1, 2, 3], first);
+        Assert.Equal([1, 2, 3], second);
+        IReadOnlyList<JsonObject> captures = session.RemoteEnd.CommandsFor("browsingContext.captureScreenshot");
+        Assert.Equal([frame.Id, page.Id, page.Id], captures.Select(capture => (string?)capture["params"]!["context"]));
+        JsonObject parameters = captures[1]["params"]!.AsObject();
+        Assert.Equal("box", (string?)parameters["clip"]!["type"]);
+        Assert.Equal([35, 1051, 47, 89], new[] { "x", "y", "width", "height" }.Select(name => (double)parameters["clip"]![name]!));
+        Assert.Equal("document", (string?)parameters["origin"]);
+        Assert.Equal("image/jpeg", (string?)parameters["format"]!["type"]);
+        Assert.Contains(session.RemoteEnd.CommandsFor("script.callFunction"), call => ((string?)call["params"]!["functionDeclaration"])!.Contains("element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' })"));
+    }
+
+    [Fact]
+    public async Task ScreenshotInAFrameTheBrowserCannotCaptureWaitsForTheElementToBeInViewOfItsFrames()
+    {
+        (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider time) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        Frame frame = await AnswerNestedFramesAsync(driver, session, page, Object(new JsonField("left", Number(10)), new JsonField("top", Number(150)), new JsonField("right", Number(50)), new JsonField("bottom", Number(170))));
+        session.RemoteEnd.FailWith("browsingContext.captureScreenshot", "unsupported operation", "Non-top-level 'context' is currently not supported");
+
+        Task<byte[]> screenshot = frame.Locate(new CssLocator("div")).ScreenshotAsync(timeout: TimeSpan.FromSeconds(1), cancellationToken: TestContext.Current.CancellationToken);
+        WebDriverBiDiTimeoutException exception = await Assert.ThrowsAsync<WebDriverBiDiTimeoutException>(() => DriveAsync(time, screenshot));
+
+        Assert.EndsWith("; no part of the element was in view of its frames.", exception.Message);
+        Assert.Single(session.RemoteEnd.CommandsFor("browsingContext.captureScreenshot"));
+    }
+
+    [Fact]
+    public async Task ScreenshotInTheMainFrameTheBrowserRefusesFails()
+    {
+        (BiDiDriver driver, FakeSession session, Page page, FakeTimeProvider time) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        session.RemoteEnd.AnswerWith("browsingContext.locateNodes", ProtocolJson.Nodes("div-1"));
+        AnswerScripts(session, Object(new JsonField("status", String("success"))));
+        session.RemoteEnd.FailWith("browsingContext.captureScreenshot", "unsupported operation", "Capture is not supported");
+
+        WebDriverBiDiCommandException exception = await Assert.ThrowsAsync<WebDriverBiDiCommandException>(() => DriveAsync(time, page.Locate(new CssLocator("div")).ScreenshotAsync(cancellationToken: TestContext.Current.CancellationToken)));
+
+        Assert.Equal(ErrorCode.UnsupportedOperation, exception.ErrorCode);
+        Assert.Single(session.RemoteEnd.CommandsFor("browsingContext.captureScreenshot"));
+    }
+
     [Theory]
     [InlineData(0, "success", "no element matched")]
     [InlineData(1, "error", "the element was removed from the document")]
@@ -248,7 +304,32 @@ public class ReadTests
         return new TimedPage(driver, session, page, time);
     }
 
-    // Answers each script with the next result in turn, repeating the last.
+    // An element's frame inside another frame: the inner frame's viewport is 200 by 100 and starts at (5, 6) in the
+    // outer frame's, which is 52 by 100 and starts at (30, 40) in the page's, scrolled 1000 down.
+    private static async Task<Frame> AnswerNestedFramesAsync(BiDiDriver driver, FakeSession session, Page page, JsonObject elementBox)
+    {
+        FakeContext outer = await session.CreateFrameAsync(page.Id);
+        FakeContext inner = await session.CreateFrameAsync(outer.Id);
+        await driver.Session.StatusAsync(new WebDriverBiDi.Session.StatusCommandParameters(), cancellationToken: TestContext.Current.CancellationToken);
+        session.RemoteEnd.AnswerWith("browsingContext.locateNodes", parameters => (string?)parameters["context"] == inner.Id ? ProtocolJson.Nodes("div-1") : ProtocolJson.Nodes("frame-1"));
+        session.RemoteEnd.AnswerWith("script.callFunction", parameters =>
+        {
+            string function = (string?)parameters["functionDeclaration"] ?? string.Empty;
+            string? context = (string?)parameters["target"]!["context"];
+            return ProtocolJson.Success(function switch
+            {
+                _ when function.Contains("queryElementStates") => Object(new JsonField("status", String("success"))),
+                _ when function.Contains("getBoundingClientRect(); return { left") => (JsonObject)elementBox.DeepClone(),
+                _ when function.Contains("clientWidth") => context == inner.Id ? Array(Number(200), Number(100)) : Array(Number(52), Number(100)),
+                _ when function.Contains("contentWindow") => context == page.Id ? Array(Array(Window(outer.Id), Number(30), Number(40))) : Array(Array(Window(inner.Id), Number(5), Number(6))),
+                _ when function.Contains("scrollX") => Array(Number(0), Number(1000)),
+                _ => new JsonObject() { ["type"] = "undefined" },
+            });
+        });
+        return page.Frames.Single(frame => frame.Id == inner.Id);
+    }
+
+    // Answers each script with the next result in turn, repeating the last.    // Answers each script with the next result in turn, repeating the last.
     private static void AnswerScripts(FakeSession session, params JsonObject[] results)
     {
         int[] calls = [0];
@@ -283,6 +364,11 @@ public class ReadTests
     private static JsonObject Number(double value)
     {
         return new JsonObject() { ["type"] = "number", ["value"] = value };
+    }
+
+    private static JsonObject Window(string contextId)
+    {
+        return new JsonObject() { ["type"] = "window", ["value"] = new JsonObject() { ["context"] = contextId } };
     }
 
     private static async Task<T> DriveAsync<T>(FakeTimeProvider time, Task<T> operation)
