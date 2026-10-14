@@ -102,7 +102,7 @@ public class ReadIntegrationTests
 
     [Theory]
     [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
-    public async Task ScreenshotCapturesAnElementInANestedCrossOriginFrame(BrowserKind browserKind)
+    public async Task ScreenshotCapturesAnElementOutOfViewInANestedCrossOriginFrame(BrowserKind browserKind)
     {
         await using TestPageServer server = await TestPageServer.StartAsync();
         await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
