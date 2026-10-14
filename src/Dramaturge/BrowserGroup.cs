@@ -44,6 +44,7 @@ public sealed class BrowserGroup : IAsyncDisposable
     private string? subscriptionId;
     private string? networkSubscriptionId;
     private string? frontContextId;
+    private int capturesOnlyTopLevelContexts;
     private int isDisposed;
 
     private BrowserGroup(BiDiDriver driver, DramaturgeOptions options, BrowserLauncher? launcher, bool ownsSession)
@@ -118,6 +119,12 @@ public sealed class BrowserGroup : IAsyncDisposable
     /// Gets the host that runs the library's scripts in pages.
     /// </summary>
     internal ScriptHost ScriptHost { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether the browser has refused to capture a screenshot of a frame that is not
+    /// top-level, so that later screenshots in frames capture the page without asking again.
+    /// </summary>
+    internal bool CapturesOnlyTopLevelContexts => Volatile.Read(ref this.capturesOnlyTopLevelContexts) == 1;
 
     /// <summary>
     /// Gets the name of the browser, as the session reported it, or empty when the group did not start the session.
@@ -295,6 +302,14 @@ public sealed class BrowserGroup : IAsyncDisposable
 
         await this.Driver.DisposeAsync().ConfigureAwait(false);
         await this.launcher.DisposeAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Records that the browser refused to capture a screenshot of a frame that is not top-level.
+    /// </summary>
+    internal void RecordCapturesOnlyTopLevelContexts()
+    {
+        Volatile.Write(ref this.capturesOnlyTopLevelContexts, 1);
     }
 
     /// <summary>
