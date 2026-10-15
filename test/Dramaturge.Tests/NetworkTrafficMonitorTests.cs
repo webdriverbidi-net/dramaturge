@@ -247,7 +247,7 @@ public class NetworkTrafficMonitorTests
         Assert.Equal(200ul, request.ResponseStatusCode);
         Assert.Empty(await monitor.GetCapturedTrafficAsync(TimeSpan.Zero, TestContext.Current.CancellationToken));
 
-        // A request body is not disowned: Chrome then forgets a request that a route has stopped.
+        // A request body is not disowned: Chrome can then lose the response's body.
         Dictionary<string, JsonNode> reads = remoteEnd.CommandsFor("network.getData").ToDictionary(command => (string)command["params"]!["dataType"]!, command => command["params"]!);
         Assert.False(reads["request"].AsObject().ContainsKey("disown"));
         Assert.True((bool?)reads["response"]["disown"]);

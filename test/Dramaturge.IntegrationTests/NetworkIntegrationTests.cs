@@ -113,7 +113,6 @@ public class NetworkIntegrationTests
     [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
     public async Task BrowserRouteAnswersAPopupsFirstRequest(BrowserKind browserKind)
     {
-        Assert.SkipWhen(browserKind == BrowserKind.Chrome, "Chrome neither stops nor reports a popup's first request, so no route can answer it (https://issues.chromium.org/issues/571161447).");
         await using TestPageServer server = await TestPageServer.StartAsync();
         await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
         Page page = await OpenAsync(group, server);

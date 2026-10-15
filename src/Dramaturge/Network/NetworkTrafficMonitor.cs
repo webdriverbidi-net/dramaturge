@@ -305,9 +305,7 @@ public sealed class NetworkTrafficMonitor : IAsyncDisposable
 
         if (this.pendingRequests.Count < current.MaxRetainedRequests)
         {
-            // The body is not disowned: Chrome then forgets a request that a route has stopped (crbug.com/571267468), so that the route can no
-            // longer answer it. The collector's request bodies are released when monitoring stops. Once chromium-bidi
-            // keeps a request whose data was disowned, set DisownCollectedData here again.
+            // Not disowned: in Chrome that can lose the response's collected body. Released when monitoring stops.
             Task<GetDataCommandResult>? requestBody = current.CollectorId is not null && e.Request.BodySize > 0
                 ? Task.Run(() => this.driver.Network.GetDataAsync(new GetDataCommandParameters(requestId, DataType.Request) { CollectorId = current.CollectorId }))
                 : null;

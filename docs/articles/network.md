@@ -38,8 +38,6 @@ A request is offered to its page's routes first, newest first, then to its brows
 
 WebDriver BiDi cannot limit stopping requests to one browser, so while a browser route exists, the matching requests of the group's other browsers are stopped too, and continued at once, at the cost of a round trip each. Give a browser route a filter.
 
-> **Chrome:** Chrome neither stops nor reports a popup's first request, so a browser route does not see it; the popup's later requests are routed ([issue 571161447](https://issues.chromium.org/issues/571161447)).
-
 ## Recording and Replaying HAR Files
 
 An HTTP Archive (HAR) file holds requests and their responses. Recording a page's traffic to one, and answering the page's requests from it later, lets a test run against what a server once said, without the server:
