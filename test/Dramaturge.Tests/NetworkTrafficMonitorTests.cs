@@ -49,7 +49,7 @@ public class NetworkTrafficMonitorTests
     }
 
     [Fact]
-    public async Task MonitoringUserContextsScopesTheCollectorAndFiltersEventsItself()
+    public async Task MonitoringUserContextsScopesTheCollectorAndTheSubscriptionWithoutIntercepts()
     {
         (BiDiDriver driver, FakeRemoteEnd remoteEnd) = await ConnectAsync();
         await using BiDiDriver ownedDriver = driver;
@@ -63,7 +63,7 @@ public class NetworkTrafficMonitorTests
         Assert.Equal("""["user-context-1"]""", collector["userContexts"]!.ToJsonString());
         Assert.Null(collector["contexts"]);
         JsonNode subscribe = Assert.Single(remoteEnd.CommandsFor("session.subscribe"))["params"]!;
-        Assert.Null(subscribe["userContexts"]);
+        Assert.Equal("""["user-context-1"]""", subscribe["userContexts"]!.ToJsonString());
         Assert.Null(subscribe["contexts"]);
     }
 

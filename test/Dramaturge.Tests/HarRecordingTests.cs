@@ -71,6 +71,7 @@ public sealed class HarRecordingTests : IDisposable
         }
 
         Assert.Empty(session.RemoteEnd.CommandsFor("network.addDataCollector"));
+        Assert.Equal([page.Browser.Id], Assert.Single(session.RemoteEnd.CommandsFor("session.subscribe"), command => command["params"]!["events"]!.AsArray().Any(e => (string?)e == "network.beforeRequestSent"))["params"]!["userContexts"]!.AsArray().Select(context => (string?)context));
         Assert.Equal(["https://example.com/own"], Urls(path));
     }
 

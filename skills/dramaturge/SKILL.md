@@ -139,7 +139,6 @@ await Expect(page.GetByRole("navigation", "Main")).ToMatchAriaSnapshotAsync("""
 ```csharp
 using Dramaturge;
 
-// Give a body or a header: Chrome sends a status-only response on to the network instead.
 RouteRegistration route = await page.RouteAsync(
     "https://api.example.com/v1/user",
     r => r.FulfillAsync(200, """{"name":"Ada"}""", new Dictionary<string, string>() { ["Content-Type"] = "application/json" }));
@@ -152,7 +151,7 @@ Routes answer (`FulfillAsync`), change (`ContinueAsync`), or fail (`AbortAsync`)
 ## Known Browser Gaps
 
 - Firefox: `GetByText` is unsupported (its innerText locator, bug 1869538); native HTML5 drag-and-drop fires only `dragstart` (bug 1515879); the dialog handler given to a new browser is ignored (bug 1975279).
-- Chrome: a route's `FulfillAsync` with only a status code is sent to the network instead (crbug.com/571267467); give a body or header. Screenshots of elements inside iframes are taken from the page (crbug.com/571157929, Won't Fix): the element is scrolled into view, and the image is only the part its frames show, with anything drawn over it. `GetByRole` finds nothing inside a same-origin iframe (crbug.com/571486947); use another locator there. Video is not supported (crbug.com/517158243): `RecordVideoAsync` throws `NotSupportedException`, and `VideoOnFailure` gives one warning per test.
+- Chrome: screenshots of elements inside iframes are taken from the page (crbug.com/571157929, Won't Fix): the element is scrolled into view, and the image is only the part its frames show, with anything drawn over it. Video is not supported (crbug.com/517158243): `RecordVideoAsync` throws `NotSupportedException`, and `VideoOnFailure` gives one warning per test.
 - Snapshot names versus `GetByRole`: both browsers leave table rows unnamed; Chrome does not name a `figure` from its `figcaption`; Firefox names a value-less submit button "Submit Query" and gives an `svg` without a role another role than `image`. Firefox still finds a ref's element after its frame navigates away, instead of throwing.
 
 ## Rules

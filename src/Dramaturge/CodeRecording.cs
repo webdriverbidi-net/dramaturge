@@ -640,7 +640,7 @@ public sealed class CodeRecording : IAsyncDisposable
     }
 
     // A navigation is the effect of the action pending when it started, if that action is still pending and has caused
-    // none yet. Otherwise its document's report, which Chrome sometimes loses, tells the page's own navigation, which
+    // none yet. Otherwise its document's report tells the page's own navigation, which
     // replay repeats, from the user's, as when typing an address; a popup's first, before it is acted in, is its
     // opener's. A reported traversal of the history is the user's, by the browser's back or forward, since a page
     // rarely traverses its history without an action; a step back or forward is written as one.

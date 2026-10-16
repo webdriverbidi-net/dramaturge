@@ -242,11 +242,14 @@ public sealed class NetworkTrafficMonitor : IAsyncDisposable
             starting.AuthInterceptId = (await network.AddInterceptAsync(intercept, cancellationToken: cancellationToken).ConfigureAwait(false)).InterceptId;
         }
 
-        // A monitor limited to user contexts subscribes to every event and keeps those of its user contexts itself: it
-        // must see the requests of other user contexts that its intercepts stop, to continue them, and Chrome does not
-        // send a worker's events to a subscription limited to user contexts (crbug.com/571526261). Once chromium-bidi does, subscribe with
-        // the user contexts when the monitor has no intercepts.
+        // Intercepts cannot be limited to user contexts, so a monitor with any must see, and continue, the requests of
+        // other user contexts that they stop: it subscribes to every event and keeps those of its user contexts itself.
         SubscribeCommandParameters subscribe = new(subscribedEvents, starting.BrowsingContextIds.Length > 0 ? [.. starting.BrowsingContextIds] : null);
+        if (starting.RequestIntercepts.Count == 0 && starting.Credentials.Length == 0)
+        {
+            subscribe.UserContexts.AddRange(starting.UserContextIds);
+        }
+
         starting.SubscriptionId = (await this.driver.Session.SubscribeAsync(subscribe, cancellationToken: cancellationToken).ConfigureAwait(false)).SubscriptionId;
     }
 
