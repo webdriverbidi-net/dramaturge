@@ -314,7 +314,8 @@ public sealed class BrowserGroup : IAsyncDisposable
 
     /// <summary>
     /// Brings a page to the front unless the group knows it is there already. A page behind another can be neither
-    /// drawn nor, in Chrome, given input, so an action or screenshot waits on it forever.
+    /// drawn nor, in Chrome, given input, nor have its accessibility tree searched, so an action, a screenshot, or an
+    /// accessibility lookup waits on it, in Chrome forever.
     /// </summary>
     /// <param name="page">The page.</param>
     /// <param name="timeout">The time bringing it to the front may take, or <see langword="null"/> for the driver's default.</param>
@@ -332,6 +333,19 @@ public sealed class BrowserGroup : IAsyncDisposable
 
         await this.Driver.BrowsingContext.ActivateAsync(new ActivateCommandParameters(page.Id), timeout, cancellationToken).ConfigureAwait(false);
         this.RecordFront(page.Id, null);
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether the group knows another page is in front of a page.
+    /// </summary>
+    /// <param name="page">The page.</param>
+    /// <returns><see langword="true"/> if another page is known to be in front.</returns>
+    internal bool IsBehindAnother(Page page)
+    {
+        lock (this.lockObject)
+        {
+            return this.frontContextId is not null && this.frontContextId != page.Id;
+        }
     }
 
     /// <summary>

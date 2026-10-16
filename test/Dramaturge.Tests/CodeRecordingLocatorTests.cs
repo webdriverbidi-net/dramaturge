@@ -302,6 +302,84 @@ public class CodeRecordingLocatorTests
         Assert.Contains("await page.GetByLabel(\"Email\").ClickAsync();\nawait page.ReloadAsync();", code);
     }
 
+    // A page behind another does not answer a lookup in its accessibility tree, and the recording leaves it there, so
+    // its first role candidate is written unconfirmed.
+    [Fact]
+    public async Task RoleInAPageBehindAnotherIsTakenUnconfirmed()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        await page.Browser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        Answer(session, request => request.Kind == "testId" ? [] : [Target]);
+
+        string statement = await RecordClickAsync(driver, session, page, Facts());
+
+        Assert.Equal("await page.GetByRole(\"button\", \"Save\").ClickAsync();", statement);
+        Assert.DoesNotContain(session.RemoteEnd.CommandsFor("browsingContext.locateNodes"), command => (string?)command["params"]!["locator"]!["type"] == "accessibility");
+        Assert.Empty(session.RemoteEnd.CommandsFor("browsingContext.activate"));
+    }
+
+    // Only a page known to be behind another is left unsearched: one open before the group connected may be in front.
+    [Fact]
+    public async Task RoleInAPageWhosePlaceIsUnknownIsLookedUp()
+    {
+        (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
+        await using BiDiDriver ownedDriver = driver;
+        FakeContext existing = session.AddContext();
+        BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { NavigationTimeout = TimeSpan.FromSeconds(5) }, TestContext.Current.CancellationToken);
+        Page page = group.DefaultBrowser.Pages.Single(candidate => candidate.Id == existing.Id);
+        Answer(session, request => request.Kind == "role+name" ? [Target] : []);
+
+        string statement = await RecordClickAsync(driver, session, page, Facts());
+
+        Assert.Equal("await page.GetByRole(\"button\", \"Save\").ClickAsync();", statement);
+        Assert.Contains(session.RemoteEnd.CommandsFor("browsingContext.locateNodes"), command => (string?)command["params"]!["locator"]!["type"] == "accessibility");
+    }
+
+    [Fact]
+    public async Task AncestorsRoleInAPageBehindAnotherIsNotLookedUp()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        await page.Browser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        JsonObject form = new() { ["role"] = "form", ["name"] = "Sign in", ["cssPath"] = "#login", ["labels"] = new JsonArray() };
+        JsonObject panel = new() { ["testId"] = "panel", ["role"] = "generic", ["cssPath"] = "#main > div", ["labels"] = new JsonArray() };
+        Answer(session, request => request.Scoped ? [Target] : request.Value.Contains("panel") ? ["node-3"] : [Target, "node-9"]);
+
+        string statement = await RecordClickAsync(driver, session, page, new JsonObject() { ["text"] = "Save now", ["cssPath"] = "#main > div > p", ["labels"] = new JsonArray() }, [form, panel], [Target, "node-2", "node-3"]);
+
+        Assert.Equal("await page.GetByTestId(\"panel\").GetByText(\"Save now\").ClickAsync();", statement);
+        Assert.DoesNotContain(session.RemoteEnd.CommandsFor("browsingContext.locateNodes"), command => (string?)command["params"]!["locator"]!["type"] == "accessibility");
+    }
+
+    // A popup goes in front of its opener, whose accessibility tree is then not searched, so it ends the opener's
+    // lookups in flight rather than leave the recording waiting for an answer that, in Chrome, never comes.
+    [Fact]
+    public async Task PopupEndsItsOpenersLookupsInFlight()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync(TimeSpan.FromHours(1));
+        await using BiDiDriver ownedDriver = driver;
+        Answer(session, _ => [Target]);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.RemoteEnd.HoldAnswers("browsingContext.locateNodes", release.Task);
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+        JsonObject click = Action("click", new JsonObject() { ["role"] = "button", ["name"] = "Open", ["cssPath"] = "#open", ["labels"] = new JsonArray() }, new JsonField("button", "left"), new JsonField("clickCount", 1), new JsonField("modifiers", new JsonArray()));
+
+        await SendAsync(driver, session, channel, page.Id, click, Target);
+        await session.RemoteEnd.WaitForCommandAsync("browsingContext.locateNodes");
+        await session.RemoteEnd.RaiseEventAsync("browsingContext.contextCreated", new JsonObject() { ["context"] = "popup-1", ["clientWindow"] = "window-1", ["url"] = "about:blank", ["userContext"] = "default", ["children"] = null, ["parent"] = null, ["originalOpener"] = page.Id });
+
+        // An answer comes after the events sent before it, so once one has come, the popup has been handled.
+        await driver.BrowsingContext.GetTreeAsync(new GetTreeCommandParameters(), cancellationToken: TestContext.Current.CancellationToken);
+        string code = await recording.StopAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        bool answeredFirst = release.Task.IsCompleted;
+        release.SetResult();
+
+        Assert.False(answeredFirst);
+        Assert.Contains("page.GetByRole(\"button\", \"Open\").ClickAsync()", code);
+    }
+
     private static JsonObject Facts()
     {
         return new JsonObject()
@@ -381,10 +459,10 @@ public class CodeRecordingLocatorTests
         return code.Split('\n').Single(line => line.Contains("Expect("));
     }
 
-    private static async Task<OpenedPage> OpenPageAsync()
+    private static async Task<OpenedPage> OpenPageAsync(TimeSpan? navigationTimeout = null)
     {
         (BiDiDriver driver, FakeSession session) = await FakeSession.ConnectAsync();
-        BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { NavigationTimeout = TimeSpan.FromSeconds(5) }, TestContext.Current.CancellationToken);
+        BrowserGroup group = await BrowserGroup.ConnectAsync(driver, new DramaturgeOptions() { NavigationTimeout = navigationTimeout ?? TimeSpan.FromSeconds(5) }, TestContext.Current.CancellationToken);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
         return new OpenedPage(driver, session, page);
     }
