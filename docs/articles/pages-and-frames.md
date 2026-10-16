@@ -10,6 +10,8 @@ A navigation waits until the new document is loaded, or until the `ReadinessStat
 
 A navigation started with `NavigateAsync`, `ReloadAsync`, `GoBackAsync`, or `GoForwardAsync` first waits for the page's element lookups still in flight, and a lookup started while one of those navigations is in progress waits for it, since Chrome can stop answering a page whose lookup is pending as it navigates ([issue 572278424](https://issues.chromium.org/issues/572278424)). Both waits come out of the navigation's or the action's own timeout, and a navigation waits no longer once the page has committed a new document.
 
+> **Chrome:** once a navigation to another document starts, Chrome holds every command to the page until the navigation commits ([issue 572438294](https://issues.chromium.org/issues/572438294), which Chrome will not change). A read, a lookup, or an `Expect` check sent while a click's navigation waits for its response is answered from the new document, or fails if it was bound to the old one, where Firefox answers from the old document. Wait for the navigation, with `RunAndWaitForNavigationAsync` or `WaitForUrlAsync`, before reading the page it leads to.
+
 `SetContentAsync` replaces the document's content with HTML of your own, and `BringToFrontAsync` and `CloseAsync` focus and close the page.
 
 ## Scripts
