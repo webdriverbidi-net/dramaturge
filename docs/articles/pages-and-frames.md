@@ -50,7 +50,7 @@ Answer the dialog from the observer, without awaiting the action that opened it:
 
 `RunAndWaitForPopupAsync` runs an action and returns the page it opened. `OnPopup` reports every page this page opens; each also appears in its browser's `Pages` and `OnPageCreated`, with this page as its `Opener`.
 
-A popup opens in front of the page that opened it, and a browser draws nothing in a page behind another, nor, in Chrome, gives it input. So an action, the page's `Keyboard` or `Mouse`, or a screenshot on a page that is not in front brings it to the front first, as a user switches to a tab to use it; reading the page, evaluating scripts, and expectations do not. Dramaturge knows which page is in front from the pages it opens and brings forward, so a tab you switch to yourself in a browser with a window is not noticed.
+A popup opens in front of the page that opened it, and a browser draws nothing in a page behind another, nor, in Chrome, gives it input, nor searches its accessibility tree: Chrome answers a role lookup there only once the page is in front, and Firefox seconds later. So an action, the page's `Keyboard` or `Mouse`, a screenshot, or a `GetByRole` lookup, an expectation's included, on a page that is not in front brings it to the front first, as a user switches to a tab to use it; other reads, evaluating scripts, and expectations on other locators do not. Dramaturge knows which page is in front from the pages it opens and brings forward, so a tab you switch to yourself in a browser with a window is not noticed.
 
 ## Downloads
 

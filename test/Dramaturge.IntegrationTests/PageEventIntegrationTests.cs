@@ -174,8 +174,8 @@ public class PageEventIntegrationTests
         return page;
     }
 
-    // A browser draws nothing in a page behind another, and Chrome gives it no input, so the opener is brought back
-    // to the front before it is acted on.
+    // A browser draws nothing in a page behind another, and Chrome gives it no input, nor answers a lookup in its
+    // accessibility tree, so the opener is brought back to the front before it is acted on or searched by role.
     [Theory]
     [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
     public async Task OpenerBehindItsPopupCanStillBeActedOn(BrowserKind browserKind)
@@ -197,12 +197,17 @@ public class PageEventIntegrationTests
             Assert.Fail($"The opener stayed {visibility} for 10 seconds after its popup opened ({windows}).");
         }
 
+        int buttons = await page.GetByRole("button").CountAsync(TestContext.Current.CancellationToken);
+        string visibleAfterLookup = await page.EvaluateAsync<string>("() => document.visibilityState", cancellationToken: TestContext.Current.CancellationToken);
+        await popup.BringToFrontAsync(TestContext.Current.CancellationToken);
         BoundingBox go = (await page.Locate(new CssLocator("#go")).BoundingBoxAsync(cancellationToken: TestContext.Current.CancellationToken))!;
         await page.Mouse.ClickAsync(go.X + (go.Width / 2), go.Y + (go.Height / 2), cancellationToken: TestContext.Current.CancellationToken);
         await page.Locate(new CssLocator("#go")).ClickAsync(new ClickOptions() { Timeout = TimeSpan.FromSeconds(10) }, TestContext.Current.CancellationToken);
         await page.Locate(new CssLocator("#name")).FillAsync("Ada", new ActionOptions() { Timeout = TimeSpan.FromSeconds(10) }, TestContext.Current.CancellationToken);
         byte[] screenshot = await page.ScreenshotAsync(cancellationToken: TestContext.Current.CancellationToken);
 
+        Assert.Equal(2, buttons);
+        Assert.Equal("visible", visibleAfterLookup);
         Assert.Equal(2, await page.EvaluateAsync<int>("() => window.clicks", cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal("Ada", await page.Locate(new CssLocator("#name")).InputValueAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.NotEmpty(screenshot);

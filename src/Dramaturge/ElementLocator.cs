@@ -1382,6 +1382,18 @@ public sealed class ElementLocator
             parameters.StartNodes.AddRange(startNodes.Select(node => node.ToSharedReference()));
         }
 
+        if (locator is AccessibilityLocator)
+        {
+            if (!budget.LeavesPagesBehind)
+            {
+                await this.Group.BringToFrontIfBehindAsync(this.Frame.Page, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
+            }
+            else if (this.Group.IsBehindAnother(this.Frame.Page))
+            {
+                throw new PageBehindException($"Page {this.Frame.Page.Id} is behind another, where its accessibility tree cannot be searched.");
+            }
+        }
+
         LocateNodesCommandResult result = await this.Frame.Page.NavigationGate.RunLookupAsync(budget, () => this.Group.Driver.BrowsingContext.LocateNodesAsync(parameters, budget.Remaining, budget.CancellationToken)).ConfigureAwait(false);
         return DistinctNodes(result.Nodes);
     }

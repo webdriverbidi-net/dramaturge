@@ -14,7 +14,8 @@ using WebDriverBiDi.Script;
 /// ancestors: the first candidate that Dramaturge's own resolution finds the element alone with, in the order test
 /// ID, role and name, label, placeholder, alt text, title, text, and role; then one of those within an ancestor
 /// found alone by its test ID, role and name, or ID; then the first that finds the element among others, with its
-/// index. When none finds the element, its CSS path, if that does, or else its first candidate.
+/// index. When none finds the element, its CSS path, if that does, or else its first candidate. In a page behind
+/// another, whose accessibility tree is not searched, its first role candidate is taken unconfirmed once one is reached.
 /// </summary>
 internal static class LocatorGenerator
 {
@@ -53,6 +54,12 @@ internal static class LocatorGenerator
         foreach (Candidate candidate in candidates)
         {
             ElementLocator locator = candidate.OnFrame(frame);
+            if (candidate.SearchesAccessibilityTree && frame.Page.Browser.Group.IsBehindAnother(frame.Page))
+            {
+                Candidate first = candidates.First(earlier => earlier.SearchesAccessibilityTree);
+                return new GeneratedLocator(first.Code, first.OnFrame(frame)) { MatchedText = first.MatchedText };
+            }
+
             List<string?> matches = await ResolveAsync(locator, budget).ConfigureAwait(false);
             if (matches.Count == 1 && matches[0] == targetId)
             {
@@ -238,8 +245,8 @@ internal static class LocatorGenerator
     private static Candidate TestId(string testId) => new($"GetByTestId({CodeWriter.Literal(testId)})", frame => frame.GetByTestId(testId), scope => scope.GetByTestId(testId));
 
     private static Candidate Role(string role, string? name) => name is null
-        ? new($"GetByRole({CodeWriter.Literal(role)})", frame => frame.GetByRole(role), scope => scope.GetByRole(role))
-        : new($"GetByRole({CodeWriter.Literal(role)}, {CodeWriter.Literal(name)})", frame => frame.GetByRole(role, name), scope => scope.GetByRole(role, name));
+        ? new($"GetByRole({CodeWriter.Literal(role)})", frame => frame.GetByRole(role), scope => scope.GetByRole(role)) { SearchesAccessibilityTree = true }
+        : new($"GetByRole({CodeWriter.Literal(role)}, {CodeWriter.Literal(name)})", frame => frame.GetByRole(role, name), scope => scope.GetByRole(role, name)) { SearchesAccessibilityTree = true };
 
     private static Candidate Css(string selector) => new($"Locate(new CssLocator({CodeWriter.Literal(selector)}))", frame => frame.Locate(new CssLocator(selector)), null);
 
@@ -248,10 +255,12 @@ internal static class LocatorGenerator
     private static Candidate Exact(string method, string text, Func<Frame, string, ElementLocator> onFrame, Func<ElementLocator, string, ElementLocator> within) => new($"{method}({CodeWriter.Literal(text)}, exact: true)", frame => onFrame(frame, text), scope => within(scope, text));
 
     // A way to find the element: its C#, its locator in a frame or, for the element's own candidates, within another
-    // locator, and the element's text it finds the element by, if any.
+    // locator, the element's text it finds the element by, if any, and whether it searches the accessibility tree.
     private sealed record Candidate(string Code, Func<Frame, ElementLocator> OnFrame, Func<ElementLocator, ElementLocator>? Within)
     {
         public string? MatchedText { get; init; }
+
+        public bool SearchesAccessibilityTree { get; init; }
     }
 
     private sealed record AttributeQueryMethod(string Attribute, string Method);
