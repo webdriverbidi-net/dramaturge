@@ -206,7 +206,8 @@ public class CodeRecordingIntegrationTests
         await popup.Locate(new CssLocator("#inner")).ClickAsync(cancellationToken: TestContext.Current.CancellationToken);
         await ClickToolbarAsync(popup, "Record");
 
-        await allSettled.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Task settled = await Task.WhenAny(allSettled.Task, Task.Delay(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        Assert.True(settled == allSettled.Task, $"Recorded only: {string.Join(" | ", statements)}");
         await recording.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(["Page page1 = await page.RunAndWaitForPopupAsync(() => page.GetByRole(\"button\", \"Open\").ClickAsync());", "await page1.GetByRole(\"button\", \"Inner\").ClickAsync();"], statements);
