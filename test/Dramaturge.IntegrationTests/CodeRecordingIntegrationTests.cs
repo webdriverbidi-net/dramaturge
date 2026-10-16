@@ -164,12 +164,10 @@ public class CodeRecordingIntegrationTests
             await allSettled.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
             await recording.StopAsync(TestContext.Current.CancellationToken);
 
-            // Chrome's role lookup finds nothing in a child frame, so the button there is found by its text.
-            string inner = browserKind == BrowserKind.Chrome ? "frame.GetByText(\"Inner\")" : "frame.GetByRole(\"button\", \"Inner\")";
             Assert.Equal(
                 [
                     "Frame frame = await page.GetByTitle(\"Child\").ContentFrameAsync();",
-                    $"await {inner}.ClickAsync();",
+                    "await frame.GetByRole(\"button\", \"Inner\").ClickAsync();",
                     "// Opens a dialog (confirm): \"Sure?\"\nawait page.GetByRole(\"button\", \"Confirm\").ClickAsync();",
                     "Download download = await page.RunAndWaitForDownloadAsync(() => page.GetByRole(\"link\", \"Report\").ClickAsync());",
                     "await page.RunAndWaitForNavigationAsync(() => page.GetByRole(\"link\", \"Next\").ClickAsync());",

@@ -18,8 +18,6 @@ Routes are tried newest first. A handler that decides nothing passes the request
 
 > **Firefox:** a request continued with another URL receives its response, but the page's `fetch` rejects it, in Firefox ([bug 2014825](https://bugzilla.mozilla.org/show_bug.cgi?id=2014825)).
 
-> **Chrome:** a response given only a status code, with neither headers nor a body, is not provided: Chrome's WebDriver BiDi implementation continues the request to the network instead ([issue 571267467](https://issues.chromium.org/issues/571267467)). Give a body, even an empty string, or a header.
-
 ### Stopping Fewer Requests
 
 While a route exists, every request of its page is stopped and handed over, and each one the routes do not decide is continued, which costs a round trip. A `UrlPattern` filter lets the browser stop only the requests that might match:

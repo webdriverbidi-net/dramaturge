@@ -40,6 +40,20 @@ public class NetworkIntegrationTests
 
     [Theory]
     [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
+    public async Task RouteAnswersWithAStatusAlone(BrowserKind browserKind)
+    {
+        await using TestPageServer server = await TestPageServer.StartAsync();
+        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        Page page = await OpenAsync(group, server);
+
+        await page.RouteAsync(server.UrlFor("data.txt"), route => route.FulfillAsync(503), cancellationToken: TestContext.Current.CancellationToken);
+        string answer = await page.EvaluateAsync<string>("async () => { const response = await fetch('data.txt'); return `${response.status}:${await response.text()}`; }", cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("503:", answer);
+    }
+
+    [Theory]
+    [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
     public async Task FiltersLimitWhatTheBrowserStops(BrowserKind browserKind)
     {
         await using TestPageServer server = await TestPageServer.StartAsync();

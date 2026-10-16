@@ -81,7 +81,6 @@ public static class SkillSamples
     public static async Task Routes(Page page)
     {
         #region Routes
-        // Give a body or a header: Chrome sends a status-only response on to the network instead.
         RouteRegistration route = await page.RouteAsync(
             "https://api.example.com/v1/user",
             r => r.FulfillAsync(200, """{"name":"Ada"}""", new Dictionary<string, string>() { ["Content-Type"] = "application/json" }));
