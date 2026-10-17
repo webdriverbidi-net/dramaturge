@@ -1806,6 +1806,29 @@
             }));
             return {};
         }
+        async setTextLayoutModeOverride(params) {
+            const browsingContexts = await this.#getRelatedTopLevelBrowsingContexts(params.contexts, params.userContexts, true);
+            for (const browsingContextId of params.contexts ?? []) {
+                this.#contextConfigStorage.updateBrowsingContextConfig(browsingContextId, {
+                    textLayoutMode: params.textLayoutMode,
+                });
+            }
+            for (const userContextId of params.userContexts ?? []) {
+                this.#contextConfigStorage.updateUserContextConfig(userContextId, {
+                    textLayoutMode: params.textLayoutMode,
+                });
+            }
+            if (params.contexts === undefined && params.userContexts === undefined) {
+                this.#contextConfigStorage.updateGlobalConfig({
+                    textLayoutMode: params.textLayoutMode,
+                });
+            }
+            await Promise.all(browsingContexts.map(async (context) => {
+                const config = this.#contextConfigStorage.getActiveConfig(context.id, context.userContext);
+                await context.setTextLayoutModeOverride(config.textLayoutMode ?? null);
+            }));
+            return {};
+        }
     }
     function isValidLocale(locale) {
         try {
@@ -3961,7 +3984,7 @@
             httpOnly: cookie.httpOnly,
             secure: cookie.secure,
             sameSite: cookie.sameSite === undefined
-                ? Network$2.SameSite.None
+                ? Network$2.SameSite.Default
                 : sameSiteCdpToBiDi(cookie.sameSite),
             ...(cookie.expires >= 0 ? { expiry: Math.round(cookie.expires) } : undefined),
         };
@@ -3990,6 +4013,9 @@
             throw new UnableToSetCookieException('Cannot set goog:hasCrossSiteAncestor without sourceOrigin.');
         }
         const deserializedValue = deserializeByteValue(params.cookie.value);
+        const sameSite = params.cookie.sameSite === undefined
+            ? undefined
+            : sameSiteBiDiToCdp(params.cookie.sameSite);
         const result = {
             name: params.cookie.name,
             value: deserializedValue,
@@ -4007,9 +4033,7 @@
             ...(params.cookie.expiry !== undefined && {
                 expires: params.cookie.expiry,
             }),
-            ...(params.cookie.sameSite !== undefined && {
-                sameSite: sameSiteBiDiToCdp(params.cookie.sameSite),
-            }),
+            ...(sameSite === undefined ? {} : { sameSite }),
         };
         if (params.cookie[`goog:url`] !== undefined) {
             result.url = params.cookie[`goog:url`];
@@ -4037,7 +4061,7 @@
             case 'Lax':
                 return Network$2.SameSite.Lax;
             default:
-                return Network$2.SameSite.Lax;
+                return Network$2.SameSite.Default;
         }
     }
     function sameSiteBiDiToCdp(sameSite) {
@@ -4047,6 +4071,7 @@
             case Network$2.SameSite.Strict:
                 return 'Strict';
             case Network$2.SameSite.Default:
+                return undefined;
             case Network$2.SameSite.Lax:
                 return 'Lax';
         }
@@ -4728,23 +4753,23 @@
         static #createChannelProxyEvalStr() {
             const functionStr = String(() => {
                 const queue = [];
-                let queueNonEmptyResolver = null;
+                const resolvers = [];
                 return {
                     async getMessage() {
-                        const onMessage = queue.length > 0
-                            ? Promise.resolve()
-                            : new Promise((resolve) => {
-                                queueNonEmptyResolver = resolve;
-                            });
-                        await onMessage;
-                        return queue.shift();
+                        if (queue.length > 0) {
+                            return queue.shift();
+                        }
+                        return await new Promise((resolve) => {
+                            resolvers.push(resolve);
+                        });
                     },
                     sendMessage(message) {
-                        queue.push(message);
-                        if (queueNonEmptyResolver !== null) {
-                            queueNonEmptyResolver();
-                            queueNonEmptyResolver = null;
+                        const resolve = resolvers.shift();
+                        if (resolve !== undefined) {
+                            resolve(message);
+                            return;
                         }
+                        queue.push(message);
                     },
                 };
             });
@@ -4778,7 +4803,9 @@
             return sendMessageArgResult.result.objectId;
         }
         async #startListener(realm, channelHandle, eventManager) {
-            for (;;) {
+            const pendingCommands = [];
+            const maxPending = 10;
+            const createCommand = async () => {
                 try {
                     const message = await realm.cdpClient.sendCommand('Runtime.callFunctionOn', {
                         functionDeclaration: String(async (channelHandle) => await channelHandle.getMessage()),
@@ -4795,26 +4822,39 @@
                                 undefined,
                         },
                     });
-                    if (message.exceptionDetails) {
-                        throw new Error('Runtime.callFunctionOn in ChannelProxy', {
-                            cause: message.exceptionDetails,
-                        });
-                    }
-                    for (const browsingContext of realm.associatedBrowsingContexts) {
-                        eventManager.registerEvent({
-                            type: 'event',
-                            method: Script$3.EventNames.Message,
-                            params: {
-                                channel: this.#properties.channel,
-                                data: realm.cdpToBidiValue(message, this.#properties.ownership ?? Script$2.ResultOwnership.None),
-                                source: realm.source,
-                            },
-                        }, browsingContext.id);
-                    }
+                    return { message };
                 }
                 catch (error) {
-                    this.#logger?.(LogType.debugError)?.(error);
+                    return { error };
+                }
+            };
+            for (let i = 0; i < maxPending; i++) {
+                pendingCommands.push(createCommand());
+            }
+            for (;;) {
+                const result = await pendingCommands.shift();
+                if (result.error) {
+                    this.#logger?.(LogType.debugError)?.(result.error);
                     break;
+                }
+                pendingCommands.push(createCommand());
+                const message = result.message;
+                if (message.exceptionDetails) {
+                    this.#logger?.(LogType.debugError)?.(new Error('Runtime.callFunctionOn in ChannelProxy', {
+                        cause: message.exceptionDetails,
+                    }));
+                    break;
+                }
+                for (const browsingContext of realm.associatedBrowsingContexts) {
+                    eventManager.registerEvent({
+                        type: 'event',
+                        method: Script$3.EventNames.Message,
+                        params: {
+                            channel: this.#properties.channel,
+                            data: realm.cdpToBidiValue(message, this.#properties.ownership ?? Script$2.ResultOwnership.None),
+                            source: realm.source,
+                        },
+                    }, browsingContext.id);
                 }
             }
         }
@@ -5641,8 +5681,7 @@
                 case 'emulation.setScrollbarTypeOverride':
                     return await this.#emulationProcessor.setScrollbarTypeOverride(this.#parser.parseSetScrollbarTypeOverrideParams(command.params));
                 case 'emulation.setTextLayoutModeOverride':
-                    this.#parser.parseSetTextLayoutModeOverrideParams(command.params);
-                    throw new UnsupportedOperationException(`Method ${command.method} is not implemented.`);
+                    return await this.#emulationProcessor.setTextLayoutModeOverride(this.#parser.parseSetTextLayoutModeOverrideParams(command.params));
                 case 'emulation.setTimezoneOverride':
                     return await this.#emulationProcessor.setTimezoneOverride(this.#parser.parseSetTimezoneOverrideParams(command.params));
                 case 'emulation.setTouchOverride':
@@ -6183,6 +6222,7 @@
         screenOrientation;
         scriptingEnabled;
         scrollbarType;
+        textLayoutMode;
         timezone;
         userAgent;
         userPromptHandler;
@@ -7624,6 +7664,15 @@
                 }
                 this.#navigationTracker.frameNavigated(params.frame.url + (params.frame.urlFragment ?? ''), params.frame.loaderId,
                 params.frame.unreachableUrl, params.type);
+                if (!this.#defaultRealmDeferred.isFinished) {
+                    const defaultRealms = this.#realmStorage.findRealms({
+                        browsingContextId: this.id,
+                        sandbox: null,
+                    });
+                    if (defaultRealms.length > 0) {
+                        this.#defaultRealmDeferred.resolve(defaultRealms[0]);
+                    }
+                }
                 this.#deleteAllChildren();
                 this.#documentChanged(params.frame.loaderId);
                 if (params.type === 'BackForwardCacheRestore') {
@@ -8072,7 +8121,7 @@
         }
         async setViewport(viewport, devicePixelRatio, screenOrientation) {
             const config = this.#configStorage.getActiveConfig(this.id, this.userContext);
-            await this.cdpTarget.setDeviceMetricsOverride(viewport, devicePixelRatio, screenOrientation, config.screenArea ?? null, config.scrollbarType ?? null, config.viewportMeta ?? null);
+            await this.cdpTarget.setDeviceMetricsOverride(viewport, devicePixelRatio, screenOrientation, config.screenArea ?? null, config.scrollbarType ?? null, config.viewportMeta ?? null, config.textLayoutMode ?? null);
         }
         async handleUserPrompt(accept, userText) {
             await this.top.#cdpTarget.cdpClient.sendCommand('Page.handleJavaScriptDialog', {
@@ -8503,8 +8552,12 @@
             await this.#cdpTarget.cdpClient.sendCommand('Accessibility.enable');
             const startBackendNodeIds = [];
             if (startNodes.length === 0) {
-                const { root: documentRoot } = await this.#cdpTarget.cdpClient.sendCommand('DOM.getDocument');
-                startBackendNodeIds.push(documentRoot.backendNodeId);
+                const { node: rootNode } = await this.#cdpTarget.cdpClient.sendCommand('Accessibility.getRootAXNode', {
+                    frameId: this.id,
+                });
+                if (rootNode.backendDOMNodeId !== undefined) {
+                    startBackendNodeIds.push(rootNode.backendDOMNodeId);
+                }
             }
             else {
                 for (const node of startNodes) {
@@ -8512,6 +8565,9 @@
                         const parsed = parseSharedId(node.sharedId);
                         if (!parsed) {
                             throw new NoSuchNodeException(`Invalid sharedId: ${node.sharedId}`);
+                        }
+                        if (this.navigableId !== parsed.documentId) {
+                            throw new NoSuchNodeException(`SharedId "${node.sharedId}" belongs to different document. Current document is ${this.navigableId}.`);
                         }
                         startBackendNodeIds.push(parsed.backendNodeId);
                     }
@@ -8532,7 +8588,13 @@
                 }
             }
             const matchedBackendNodeIds = new Set();
+            const isMaxNodeCountReached = () => maxNodeCount !== undefined &&
+                maxNodeCount > 0 &&
+                matchedBackendNodeIds.size >= maxNodeCount;
             for (const backendNodeId of startBackendNodeIds) {
+                if (isMaxNodeCountReached()) {
+                    break;
+                }
                 const { nodes } = await this.#cdpTarget.cdpClient.sendCommand('Accessibility.queryAXTree', {
                     backendNodeId,
                     accessibleName: locator.value.name,
@@ -8541,9 +8603,7 @@
                 for (const node of nodes) {
                     if (node.backendDOMNodeId && node.role?.type === 'role') {
                         matchedBackendNodeIds.add(node.backendDOMNodeId);
-                        if (maxNodeCount !== undefined &&
-                            maxNodeCount > 0 &&
-                            matchedBackendNodeIds.size >= maxNodeCount) {
+                        if (isMaxNodeCountReached()) {
                             break;
                         }
                     }
@@ -8552,6 +8612,7 @@
             const resultNodes = await Promise.all(Array.from(matchedBackendNodeIds).map(async (backendNodeId) => {
                 const { object } = await this.#cdpTarget.cdpClient.sendCommand('DOM.resolveNode', {
                     backendNodeId,
+                    executionContextId: realm.executionContextId,
                 });
                 return await realm.serializeCdpObject(object, Script$2.ResultOwnership.None);
             }));
@@ -8594,11 +8655,15 @@
         }
         async setScrollbarTypeOverride(scrollbarType) {
             const config = this.#configStorage.getActiveConfig(this.id, this.userContext);
-            await this.cdpTarget.setDeviceMetricsOverride(config.viewport ?? null, config.devicePixelRatio ?? null, config.screenOrientation ?? null, config.screenArea ?? null, scrollbarType, config.viewportMeta ?? null);
+            await this.cdpTarget.setDeviceMetricsOverride(config.viewport ?? null, config.devicePixelRatio ?? null, config.screenOrientation ?? null, config.screenArea ?? null, scrollbarType, config.viewportMeta ?? null, config.textLayoutMode ?? null);
         }
         async setViewportMetaOverride(viewportMeta) {
             const config = this.#configStorage.getActiveConfig(this.id, this.userContext);
-            await this.cdpTarget.setDeviceMetricsOverride(config.viewport ?? null, config.devicePixelRatio ?? null, config.screenOrientation ?? null, config.screenArea ?? null, config.scrollbarType ?? null, viewportMeta);
+            await this.cdpTarget.setDeviceMetricsOverride(config.viewport ?? null, config.devicePixelRatio ?? null, config.screenOrientation ?? null, config.screenArea ?? null, config.scrollbarType ?? null, viewportMeta, config.textLayoutMode ?? null);
+        }
+        async setTextLayoutModeOverride(textLayoutMode) {
+            const config = this.#configStorage.getActiveConfig(this.id, this.userContext);
+            await this.cdpTarget.setDeviceMetricsOverride(config.viewport ?? null, config.devicePixelRatio ?? null, config.screenOrientation ?? null, config.screenArea ?? null, config.scrollbarType ?? null, config.viewportMeta ?? null, textLayoutMode);
         }
     }
     _a$8 = BrowsingContextImpl;
@@ -9264,6 +9329,10 @@
         static unknownParameter = 'UNKNOWN';
         #id;
         #fetchId;
+        #isFinished = false;
+        get isFinished() {
+            return this.#isFinished;
+        }
         #interceptPhase;
         #servedFromCache = false;
         #redirectCount;
@@ -9501,6 +9570,7 @@
             return this.#interceptsInPhase(phase).size > 0;
         }
         handleRedirect(event) {
+            this.#isFinished = true;
             this.#response.hasExtraInfo = false;
             this.#decodedResponseBodySize = 0;
             this.#encodedResponseBodySize = 0;
@@ -9584,6 +9654,7 @@
             this.#emitEventsIfReady();
         }
         onLoadingFinishedEvent(event) {
+            this.#isFinished = true;
             this.#response.loadingFinished = event;
             this.#responseBytesReceived = event.encodedDataLength;
             this.#encodedResponseBodySize = event.encodedBodyLength ?? null;
@@ -9595,6 +9666,7 @@
             this.#responseBytesReceived += event.encodedDataLength;
         }
         onLoadingFailedEvent(event) {
+            this.#isFinished = true;
             this.#response.loadingFailed = event;
             this.#emitEventsIfReady();
             this.#emitEvent(() => {
@@ -9758,9 +9830,6 @@
                     response: 'ProvideCredentials',
                 });
             }
-            if (!overrides.body && !overrides.headers) {
-                return await this.#continueRequest();
-            }
             const overrideHeaders = this.#getOverrideHeader(overrides.headers, overrides.cookies);
             const responseHeaders = cdpFetchHeadersFromBidiNetworkHeaders(overrideHeaders);
             const responseCode = overrides.statusCode ?? this.#statusCode ?? 200;
@@ -9810,7 +9879,7 @@
                 this.#eventManager.registerPromiseEvent(this.#resolveEvent(event), this.#context, event.method);
             }
             else {
-                this.#eventManager.registerGlobalPromiseEvent(this.#resolveEvent(event), event.method);
+                this.#eventManager.registerGlobalPromiseEvent(this.#resolveEvent(event), event.method, this.#cdpTarget.userContext);
             }
         }
         async #resolveEvent(event) {
@@ -10339,8 +10408,15 @@
             this.#requests.set(request.id, request);
         }
         disposeRequest(id) {
+            const request = this.#requests.get(id);
+            if (!request) {
+                return;
+            }
             if (this.#collectorsStorage.isCollected(id)) {
-                this.#requests.get(id)?.disposeData();
+                request.disposeData();
+                return;
+            }
+            if (!request.isFinished) {
                 return;
             }
             this.#requests.delete(id);
@@ -10485,12 +10561,11 @@
                 }));
             }
             promises.push(this.#cdpClient.sendCommand('Runtime.enable'),
-            this.#cdpClient
-                .sendCommand('Network.enable', {
+            this.#cdpClient.sendCommand('Network.enable', {
                 enableDurableMessages: config.disableNetworkDurableMessages !== true,
                 maxTotalBufferSize: MAX_TOTAL_COLLECTED_SIZE,
-            })
-                .then(() => this.toggleNetworkIfNeeded()), this.#cdpClient.sendCommand('Target.setAutoAttach', {
+            }),
+            this.toggleNetworkIfNeeded(), this.#cdpClient.sendCommand('Target.setAutoAttach', {
                 autoAttach: true,
                 waitForDebuggerOnStart: true,
                 flatten: true,
@@ -10754,7 +10829,7 @@
                 return script.initInTarget(this, true);
             }));
         }
-        async setDeviceMetricsOverride(viewport, devicePixelRatio, screenOrientation, screenArea, scrollbarType = null, viewportMeta = null) {
+        async setDeviceMetricsOverride(viewport, devicePixelRatio, screenOrientation, screenArea, scrollbarType = null, viewportMeta = null, textLayoutMode = null) {
             if (!this.#isPageTarget) {
                 return;
             }
@@ -10763,7 +10838,8 @@
                 screenOrientation === null &&
                 screenArea === null &&
                 scrollbarType === null &&
-                viewportMeta === null) {
+                viewportMeta === null &&
+                textLayoutMode === null) {
                 await this.cdpClient.sendCommand('Emulation.clearDeviceMetricsOverride');
                 return;
             }
@@ -10777,6 +10853,7 @@
                 screenHeight: screenArea?.height,
                 scrollbarType: scrollbarType === 'overlay' ? 'overlay' : 'default',
                 viewportMeta: viewportMeta === true ? 'enable' : 'default',
+                textLayoutMode: textLayoutMode === 'mobile' ? 'mobile' : 'default',
             };
             await this.cdpClient.sendCommand('Emulation.setDeviceMetricsOverride', metricsOverride);
         }
@@ -10794,8 +10871,9 @@
                     config.screenOrientation !== undefined ||
                     config.screenArea !== undefined ||
                     config.scrollbarType !== undefined ||
-                    config.viewportMeta !== undefined) {
-                    promises.push(this.setDeviceMetricsOverride(config.viewport ?? null, config.devicePixelRatio ?? null, config.screenOrientation ?? null, config.screenArea ?? null, config.scrollbarType ?? null, config.viewportMeta ?? null).catch(() => {
+                    config.viewportMeta !== undefined ||
+                    config.textLayoutMode !== undefined) {
+                    promises.push(this.setDeviceMetricsOverride(config.viewport ?? null, config.devicePixelRatio ?? null, config.screenOrientation ?? null, config.screenArea ?? null, config.scrollbarType ?? null, config.viewportMeta ?? null, config.textLayoutMode ?? null).catch(() => {
                     }));
                 }
                 if (config.digitalCredentialsBehavior) {
@@ -11699,16 +11777,17 @@
             }
             return Array.from(googChannels);
         }
-        getGoogChannelsSubscribedToEventGlobally(eventName) {
+        getGoogChannelsSubscribedToEventGlobally(eventName,
+        userContextId) {
             const googChannels = new Set();
             for (const subscription of this.#subscriptions) {
-                if (this.#isSubscribedTo(subscription, eventName)) {
+                if (this.#isSubscribedTo(subscription, eventName, undefined, userContextId)) {
                     googChannels.add(subscription.googChannel);
                 }
             }
             return Array.from(googChannels);
         }
-        #isSubscribedTo(subscription, moduleOrEvent, browsingContextId) {
+        #isSubscribedTo(subscription, moduleOrEvent, browsingContextId, userContextId) {
             let includesEvent = false;
             for (const eventName of subscription.eventNames) {
                 if (
@@ -11723,6 +11802,9 @@
                 return false;
             }
             if (subscription.userContextIds.size !== 0) {
+                if (userContextId !== undefined) {
+                    return subscription.userContextIds.has(userContextId);
+                }
                 if (!browsingContextId) {
                     return false;
                 }
@@ -11923,11 +12005,11 @@
                 value: event,
             }), contextId, event.method);
         }
-        registerGlobalEvent(event) {
+        registerGlobalEvent(event, userContext) {
             this.registerGlobalPromiseEvent(Promise.resolve({
                 kind: 'success',
                 value: event,
-            }), event.method);
+            }), event.method, userContext);
         }
         registerPromiseEvent(event, contextId, eventName) {
             const eventWrapper = new EventWrapper(event, contextId);
@@ -11941,9 +12023,9 @@
                 this.#markEventSent(eventWrapper, googChannel, eventName);
             }
         }
-        registerGlobalPromiseEvent(event, eventName) {
+        registerGlobalPromiseEvent(event, eventName, userContext) {
             const eventWrapper = new EventWrapper(event, null);
-            const sortedGoogChannels = this.#subscriptionManager.getGoogChannelsSubscribedToEventGlobally(eventName);
+            const sortedGoogChannels = this.#subscriptionManager.getGoogChannelsSubscribedToEventGlobally(eventName, userContext);
             this.#bufferEvent(eventWrapper, eventName);
             for (const googChannel of sortedGoogChannels) {
                 this.emit("event" , {

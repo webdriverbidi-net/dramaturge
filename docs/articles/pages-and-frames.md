@@ -10,6 +10,8 @@ A navigation waits until the new document is loaded, or until the `ReadinessStat
 
 A navigation started with `NavigateAsync`, `ReloadAsync`, `GoBackAsync`, or `GoForwardAsync` first waits for the page's element lookups still in flight, and a lookup started while one of those navigations is in progress waits for it, since Chrome can stop answering a page whose lookup is pending as it navigates ([issue 572278424](https://issues.chromium.org/issues/572278424)). Both waits come out of the navigation's or the action's own timeout, and a navigation waits no longer once the page has committed a new document.
 
+> **Chrome:** once a navigation to another document starts, Chrome holds every command to the page until the navigation commits ([issue 572438294](https://issues.chromium.org/issues/572438294), which Chrome will not change). A read, a lookup, or an `Expect` check sent while a click's navigation waits for its response is answered from the new document, or fails if it was bound to the old one, where Firefox answers from the old document. Wait for the navigation, with `RunAndWaitForNavigationAsync` or `WaitForUrlAsync`, before reading the page it leads to.
+
 `SetContentAsync` replaces the document's content with HTML of your own, and `BringToFrontAsync` and `CloseAsync` focus and close the page.
 
 ## Scripts
@@ -48,7 +50,7 @@ Answer the dialog from the observer, without awaiting the action that opened it:
 
 `RunAndWaitForPopupAsync` runs an action and returns the page it opened. `OnPopup` reports every page this page opens; each also appears in its browser's `Pages` and `OnPageCreated`, with this page as its `Opener`.
 
-A popup opens in front of the page that opened it, and a browser draws nothing in a page behind another, nor, in Chrome, gives it input. So an action, the page's `Keyboard` or `Mouse`, or a screenshot on a page that is not in front brings it to the front first, as a user switches to a tab to use it; reading the page, evaluating scripts, and expectations do not. Dramaturge knows which page is in front from the pages it opens and brings forward, so a tab you switch to yourself in a browser with a window is not noticed.
+A popup opens in front of the page that opened it, and a browser draws nothing in a page behind another, nor, in Chrome, gives it input, nor searches its accessibility tree: Chrome answers a role lookup there only once the page is in front, and Firefox seconds later. So an action, the page's `Keyboard` or `Mouse`, a screenshot, or a `GetByRole` lookup, an expectation's included, on a page that is not in front brings it to the front first, as a user switches to a tab to use it; other reads, evaluating scripts, and expectations on other locators do not. Dramaturge knows which page is in front from the pages it opens and brings forward, so a tab you switch to yourself in a browser with a window is not noticed.
 
 ## Downloads
 
@@ -62,7 +64,7 @@ A popup opens in front of the page that opened it, and a browser draws nothing i
 
 A page screenshot captures the viewport, the whole page, or a clip, as PNG unless another `ImageFormat` is given. An element's screenshot captures the element, whether or not it is scrolled into view. `PdfAsync` prints the page as a PDF. `SetViewportSizeAsync` sets the size of the page's viewport in CSS pixels, until `ResetViewportSizeAsync`.
 
-> **Chrome:** Chrome captures screenshots only of top-level browsing contexts, so a screenshot of an element in an iframe fails in Chrome ([issue 571157929](https://issues.chromium.org/issues/571157929)).
+> **Chrome:** Chrome captures screenshots only of top-level browsing contexts, and will not capture frames ([issue 571157929](https://issues.chromium.org/issues/571157929), closed as Won't Fix). In Chrome, a screenshot of an element in an iframe is taken from the page instead: the element is scrolled to the middle of its frames, and the image is the part of it they show, along with anything drawn over it, such as a fixed header or the frames' scroll bars. A transformed frame element, such as a scaled or rotated iframe, makes that image wrong.
 
 ## Video
 

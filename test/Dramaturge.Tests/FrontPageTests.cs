@@ -8,6 +8,7 @@ namespace Dramaturge;
 using System.Text.Json.Nodes;
 using Dramaturge.TestUtilities;
 using WebDriverBiDi;
+using WebDriverBiDi.BrowsingContext;
 using WebDriverBiDi.Input;
 
 // A page behind another is brought to the front before input or a screenshot, since a browser can neither draw nor,
@@ -75,6 +76,25 @@ public class FrontPageTests
         await first.BringToFrontAsync(TestContext.Current.CancellationToken);
         await first.Mouse.ClickAsync(10, 10, cancellationToken: TestContext.Current.CancellationToken);
 
+        Assert.Equal([first.Id], Activated(session));
+    }
+
+    // A browser does not search the accessibility tree of a page behind another, so a role lookup brings it to the
+    // front first; a CSS lookup, which it answers there, does not.
+    [Fact]
+    public async Task RoleLookupInAPageBehindAnotherBringsItToTheFrontOnce()
+    {
+        (BiDiDriver driver, FakeSession session, BrowserGroup group) = await ConnectAsync();
+        await using BiDiDriver ownedDriver = driver;
+        Page first = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        await first.Locate(new CssLocator("button")).CountAsync(TestContext.Current.CancellationToken);
+        int activatedByCss = Activated(session).Count;
+        await first.GetByRole("button").CountAsync(TestContext.Current.CancellationToken);
+        await first.GetByRole("button").CountAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, activatedByCss);
         Assert.Equal([first.Id], Activated(session));
     }
 

@@ -242,11 +242,14 @@ public sealed class NetworkTrafficMonitor : IAsyncDisposable
             starting.AuthInterceptId = (await network.AddInterceptAsync(intercept, cancellationToken: cancellationToken).ConfigureAwait(false)).InterceptId;
         }
 
-        // A monitor limited to user contexts subscribes to every event and keeps those of its user contexts itself: it
-        // must see the requests of other user contexts that its intercepts stop, to continue them, and Chrome does not
-        // send a worker's events to a subscription limited to user contexts (crbug.com/571526261). Once chromium-bidi does, subscribe with
-        // the user contexts when the monitor has no intercepts.
+        // Intercepts cannot be limited to user contexts, so a monitor with any must see, and continue, the requests of
+        // other user contexts that they stop: it subscribes to every event and keeps those of its user contexts itself.
         SubscribeCommandParameters subscribe = new(subscribedEvents, starting.BrowsingContextIds.Length > 0 ? [.. starting.BrowsingContextIds] : null);
+        if (starting.RequestIntercepts.Count == 0 && starting.Credentials.Length == 0)
+        {
+            subscribe.UserContexts.AddRange(starting.UserContextIds);
+        }
+
         starting.SubscriptionId = (await this.driver.Session.SubscribeAsync(subscribe, cancellationToken: cancellationToken).ConfigureAwait(false)).SubscriptionId;
     }
 
@@ -305,9 +308,7 @@ public sealed class NetworkTrafficMonitor : IAsyncDisposable
 
         if (this.pendingRequests.Count < current.MaxRetainedRequests)
         {
-            // The body is not disowned: Chrome then forgets a request that a route has stopped (crbug.com/571267468), so that the route can no
-            // longer answer it. The collector's request bodies are released when monitoring stops. Once chromium-bidi
-            // keeps a request whose data was disowned, set DisownCollectedData here again.
+            // Not disowned: in Chrome that can lose the response's collected body. Released when monitoring stops.
             Task<GetDataCommandResult>? requestBody = current.CollectorId is not null && e.Request.BodySize > 0
                 ? Task.Run(() => this.driver.Network.GetDataAsync(new GetDataCommandParameters(requestId, DataType.Request) { CollectorId = current.CollectorId }))
                 : null;

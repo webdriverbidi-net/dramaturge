@@ -76,6 +76,22 @@ public class PointerActionIntegrationTests
         Assert.True(clicked.Value);
     }
 
+    // Chrome renders no frames for a cross-origin frame out of view, so waits on its frames would never end.
+    [Theory]
+    [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
+    public async Task ClickLandsOnElementsInACrossOriginFrameOutOfView(BrowserKind browserKind)
+    {
+        await using TestPageServer server = await TestPageServer.StartAsync();
+        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        Page page = await OpenAsync(group, server, "action-cross-origin-frame.html");
+        Frame frame = await page.Locate(new CssLocator("#inner")).ContentFrameAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        await frame.Locate(new CssLocator("#inner-button")).ClickAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        BooleanRemoteValue clicked = await group.Driver.Script.CallFunctionAsync<BooleanRemoteValue>(frame.Id, "() => window.clicked", cancellationToken: TestContext.Current.CancellationToken);
+        Assert.True(clicked.Value);
+    }
+
     // A click that starts waiting in one document and finds its element in the next.
     [Theory]
     [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]

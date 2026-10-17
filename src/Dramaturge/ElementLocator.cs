@@ -816,6 +816,12 @@ public sealed class ElementLocator
     /// <returns>The image.</returns>
     /// <exception cref="AmbiguousElementException">Thrown when more than one element matches.</exception>
     /// <exception cref="WebDriverBiDiTimeoutException">Thrown when the element is not ready in time.</exception>
+    /// <remarks>
+    /// A browser that cannot capture a frame other than the page's main frame, such as Chrome, captures an element
+    /// in a frame from the page instead: the element is scrolled to the middle of its frames, and the image is the
+    /// part of it they show, along with anything on the page drawn over it, such as its frames' scroll bars. A
+    /// frame element that is transformed, such as scaled or rotated, makes that image wrong.
+    /// </remarks>
     public Task<byte[]> ScreenshotAsync(ImageFormat? format = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         return this.TraceAsync(this.Call("Screenshot", "screenshot"), this.CreateBudget(timeout, cancellationToken), async budget => (await this.PollElementAsync<byte[]>(budget, async node =>
@@ -827,8 +833,19 @@ public sealed class ElementLocator
                 return new(false, null, notReady);
             }
 
-            CaptureScreenshotCommandParameters parameters = new(this.Frame.Id) { Clip = new ElementClipRectangle(node.ToSharedReference()), Format = format, Origin = ScreenshotOrigin.Document };
-            CaptureScreenshotCommandResult result = await this.Group.Driver.BrowsingContext.CaptureScreenshotAsync(parameters, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
+            CaptureScreenshotCommandResult? result = this.Frame.IsMainFrame || !this.Group.CapturesOnlyTopLevelContexts ? await this.CaptureInFrameAsync(node, format, budget).ConfigureAwait(false) : null;
+            if (result is null)
+            {
+                BoxClipRectangle? clip = await this.GetVisibleClipInPageAsync(node, budget).ConfigureAwait(false);
+                if (clip is null)
+                {
+                    return new(false, null, "no part of the element was in view of its frames");
+                }
+
+                CaptureScreenshotCommandParameters parameters = new(this.Frame.Page.Id) { Clip = clip, Format = format, Origin = ScreenshotOrigin.Document };
+                result = await this.Group.Driver.BrowsingContext.CaptureScreenshotAsync(parameters, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
+            }
+
             return new(true, Convert.FromBase64String(result.Data), string.Empty);
         }).ConfigureAwait(false))!);
     }
@@ -1365,6 +1382,18 @@ public sealed class ElementLocator
             parameters.StartNodes.AddRange(startNodes.Select(node => node.ToSharedReference()));
         }
 
+        if (locator is AccessibilityLocator)
+        {
+            if (!budget.LeavesPagesBehind)
+            {
+                await this.Group.BringToFrontIfBehindAsync(this.Frame.Page, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
+            }
+            else if (this.Group.IsBehindAnother(this.Frame.Page))
+            {
+                throw new PageBehindException($"Page {this.Frame.Page.Id} is behind another, where its accessibility tree cannot be searched.");
+            }
+        }
+
         LocateNodesCommandResult result = await this.Frame.Page.NavigationGate.RunLookupAsync(budget, () => this.Group.Driver.BrowsingContext.LocateNodesAsync(parameters, budget.Remaining, budget.CancellationToken)).ConfigureAwait(false);
         return DistinctNodes(result.Nodes);
     }
@@ -1865,6 +1894,50 @@ public sealed class ElementLocator
             default:
                 return new(false, false, DescribeNotReady(Property(states, "message").As<StringRemoteValue>().Value));
         }
+    }
+
+    // Returns null when the browser cannot capture this frame, as Chrome cannot capture any but a top-level one.
+    private async Task<CaptureScreenshotCommandResult?> CaptureInFrameAsync(NodeRemoteValue node, ImageFormat? format, TimeBudget budget)
+    {
+        CaptureScreenshotCommandParameters parameters = new(this.Frame.Id) { Clip = new ElementClipRectangle(node.ToSharedReference()), Format = format, Origin = ScreenshotOrigin.Document };
+        try
+        {
+            return await this.Group.Driver.BrowsingContext.CaptureScreenshotAsync(parameters, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
+        }
+        catch (WebDriverBiDiCommandException exception) when (exception.ErrorCode == ErrorCode.UnsupportedOperation && !this.Frame.IsMainFrame)
+        {
+            this.Group.RecordCapturesOnlyTopLevelContexts();
+            return null;
+        }
+    }
+
+    // Scrolls the element to the middle of its frames, then returns the part of it they show, in the main frame's
+    // document, or null if they show none of it.
+    private async Task<BoxClipRectangle?> GetVisibleClipInPageAsync(NodeRemoteValue node, TimeBudget budget)
+    {
+        await this.ScrollIntoViewAsync(node, onlyIfOutOfView: false, budget).ConfigureAwait(false);
+        RemoteValue box = await this.Group.ScriptHost.CallAsync(this.Frame.Id, "(inspector, element) => { const { left, top, right, bottom } = element.getBoundingClientRect(); return { left, top, right, bottom }; }", [node.ToSharedReference()], budget).ConfigureAwait(false);
+        double left = Number(box, "left");
+        double top = Number(box, "top");
+        double right = Number(box, "right");
+        double bottom = Number(box, "bottom");
+        for (Frame frame = this.Frame; frame.ParentFrame is not null; frame = frame.ParentFrame)
+        {
+            CssSize viewport = await frame.GetViewportSizeAsync(budget).ConfigureAwait(false);
+            CssPoint offset = await frame.GetOffsetInParentAsync(budget).ConfigureAwait(false);
+            left = Math.Max(left, 0) + offset.X;
+            top = Math.Max(top, 0) + offset.Y;
+            right = Math.Min(right, viewport.Width) + offset.X;
+            bottom = Math.Min(bottom, viewport.Height) + offset.Y;
+        }
+
+        if (right <= left || bottom <= top)
+        {
+            return null;
+        }
+
+        CssPoint scroll = await this.Frame.Page.MainFrame.GetScrollPositionAsync(budget).ConfigureAwait(false);
+        return new BoxClipRectangle() { X = left + scroll.X, Y = top + scroll.Y, Width = right - left, Height = bottom - top };
     }
 
     private Task ScrollIntoViewAsync(NodeRemoteValue node, bool onlyIfOutOfView, TimeBudget budget)

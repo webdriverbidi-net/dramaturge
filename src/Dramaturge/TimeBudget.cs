@@ -29,10 +29,11 @@ internal readonly struct TimeBudget
         this.CancellationToken = cancellationToken;
     }
 
-    private TimeBudget(TimeBudget budget, ActionTrace? trace)
+    private TimeBudget(TimeBudget budget, ActionTrace? trace, bool leavesPagesBehind)
     {
         this = budget;
         this.Trace = trace;
+        this.LeavesPagesBehind = leavesPagesBehind;
     }
 
     /// <summary>
@@ -49,6 +50,12 @@ internal readonly struct TimeBudget
     /// Gets the trace entry of the action the budget is for, or <see langword="null"/> when no trace is recording.
     /// </summary>
     public ActionTrace? Trace { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether the operation's element lookups leave a page behind another where it is,
+    /// rather than bring it to the front, which an accessibility lookup otherwise does.
+    /// </summary>
+    public bool LeavesPagesBehind { get; }
 
     /// <summary>
     /// Gets the time left, which is never negative.
@@ -72,14 +79,21 @@ internal readonly struct TimeBudget
     /// </summary>
     /// <param name="trace">The action's trace entry.</param>
     /// <returns>The copy.</returns>
-    public TimeBudget WithTrace(ActionTrace trace) => new(this, trace);
+    public TimeBudget WithTrace(ActionTrace trace) => new(this, trace, this.LeavesPagesBehind);
+
+    /// <summary>
+    /// Creates a copy of the budget, with the same time left, whose element lookups leave a page behind another
+    /// where it is.
+    /// </summary>
+    /// <returns>The copy.</returns>
+    public TimeBudget LeavingPagesBehind() => new(this, this.Trace, true);
 
     /// <summary>
     /// Creates a copy of the budget with all its time left again, from now, for an operation whose start was
     /// delayed by work that is not its own.
     /// </summary>
     /// <returns>The copy.</returns>
-    public TimeBudget Restart() => new(new TimeBudget(this.Duration, this.timeProvider, this.CancellationToken), this.Trace);
+    public TimeBudget Restart() => new(new TimeBudget(this.Duration, this.timeProvider, this.CancellationToken), this.Trace, this.LeavesPagesBehind);
 
     /// <summary>
     /// Waits for an interval, or for the rest of the budget if less is left.

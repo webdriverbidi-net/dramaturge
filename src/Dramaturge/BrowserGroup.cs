@@ -44,6 +44,7 @@ public sealed class BrowserGroup : IAsyncDisposable
     private string? subscriptionId;
     private string? networkSubscriptionId;
     private string? frontContextId;
+    private int capturesOnlyTopLevelContexts;
     private int isDisposed;
 
     private BrowserGroup(BiDiDriver driver, DramaturgeOptions options, BrowserLauncher? launcher, bool ownsSession)
@@ -118,6 +119,12 @@ public sealed class BrowserGroup : IAsyncDisposable
     /// Gets the host that runs the library's scripts in pages.
     /// </summary>
     internal ScriptHost ScriptHost { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether the browser has refused to capture a screenshot of a frame that is not
+    /// top-level, so that later screenshots in frames capture the page without asking again.
+    /// </summary>
+    internal bool CapturesOnlyTopLevelContexts => Volatile.Read(ref this.capturesOnlyTopLevelContexts) == 1;
 
     /// <summary>
     /// Gets the name of the browser, as the session reported it, or empty when the group did not start the session.
@@ -298,8 +305,17 @@ public sealed class BrowserGroup : IAsyncDisposable
     }
 
     /// <summary>
+    /// Records that the browser refused to capture a screenshot of a frame that is not top-level.
+    /// </summary>
+    internal void RecordCapturesOnlyTopLevelContexts()
+    {
+        Volatile.Write(ref this.capturesOnlyTopLevelContexts, 1);
+    }
+
+    /// <summary>
     /// Brings a page to the front unless the group knows it is there already. A page behind another can be neither
-    /// drawn nor, in Chrome, given input, so an action or screenshot waits on it forever.
+    /// drawn nor, in Chrome, given input, nor have its accessibility tree searched, so an action, a screenshot, or an
+    /// accessibility lookup waits on it, in Chrome forever.
     /// </summary>
     /// <param name="page">The page.</param>
     /// <param name="timeout">The time bringing it to the front may take, or <see langword="null"/> for the driver's default.</param>
@@ -317,6 +333,19 @@ public sealed class BrowserGroup : IAsyncDisposable
 
         await this.Driver.BrowsingContext.ActivateAsync(new ActivateCommandParameters(page.Id), timeout, cancellationToken).ConfigureAwait(false);
         this.RecordFront(page.Id, null);
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether the group knows another page is in front of a page.
+    /// </summary>
+    /// <param name="page">The page.</param>
+    /// <returns><see langword="true"/> if another page is known to be in front.</returns>
+    internal bool IsBehindAnother(Page page)
+    {
+        lock (this.lockObject)
+        {
+            return this.frontContextId is not null && this.frontContextId != page.Id;
+        }
     }
 
     /// <summary>

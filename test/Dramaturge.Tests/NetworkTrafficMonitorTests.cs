@@ -49,7 +49,7 @@ public class NetworkTrafficMonitorTests
     }
 
     [Fact]
-    public async Task MonitoringUserContextsScopesTheCollectorAndFiltersEventsItself()
+    public async Task MonitoringUserContextsScopesTheCollectorAndTheSubscriptionWithoutIntercepts()
     {
         (BiDiDriver driver, FakeRemoteEnd remoteEnd) = await ConnectAsync();
         await using BiDiDriver ownedDriver = driver;
@@ -63,7 +63,7 @@ public class NetworkTrafficMonitorTests
         Assert.Equal("""["user-context-1"]""", collector["userContexts"]!.ToJsonString());
         Assert.Null(collector["contexts"]);
         JsonNode subscribe = Assert.Single(remoteEnd.CommandsFor("session.subscribe"))["params"]!;
-        Assert.Null(subscribe["userContexts"]);
+        Assert.Equal("""["user-context-1"]""", subscribe["userContexts"]!.ToJsonString());
         Assert.Null(subscribe["contexts"]);
     }
 
@@ -247,7 +247,7 @@ public class NetworkTrafficMonitorTests
         Assert.Equal(200ul, request.ResponseStatusCode);
         Assert.Empty(await monitor.GetCapturedTrafficAsync(TimeSpan.Zero, TestContext.Current.CancellationToken));
 
-        // A request body is not disowned: Chrome then forgets a request that a route has stopped.
+        // A request body is not disowned: Chrome can then lose the response's body.
         Dictionary<string, JsonNode> reads = remoteEnd.CommandsFor("network.getData").ToDictionary(command => (string)command["params"]!["dataType"]!, command => command["params"]!);
         Assert.False(reads["request"].AsObject().ContainsKey("disown"));
         Assert.True((bool?)reads["response"]["disown"]);

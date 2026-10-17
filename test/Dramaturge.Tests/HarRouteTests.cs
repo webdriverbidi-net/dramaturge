@@ -155,7 +155,7 @@ public sealed class HarRouteTests : IDisposable
         Assert.Equal(RecordedForm.Length + 4096, (int?)collector["maxEncodedDataSize"]);
         IReadOnlyList<JsonObject> reads = session.RemoteEnd.CommandsFor("network.getData");
         Assert.Equal(["request-text", "request-form", "request-unrecorded", "request-lost"], reads.Select(command => (string?)command["params"]!["request"]));
-        Assert.All(reads, read => Assert.False(read["params"]!.AsObject().ContainsKey("disown")));
+        Assert.All(reads, read => Assert.True((bool?)read["params"]!["disown"]));
         Dictionary<string, string> answers = session.RemoteEnd.CommandsFor("network.provideResponse").ToDictionary(command => (string)command["params"]!["request"]!, command => Body(command["params"]!.AsObject()));
         Assert.Equal("text body", answers["request-text"]);
         Assert.Equal("form body", answers["request-form"]);

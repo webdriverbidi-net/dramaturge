@@ -164,12 +164,10 @@ public class CodeRecordingIntegrationTests
             await allSettled.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
             await recording.StopAsync(TestContext.Current.CancellationToken);
 
-            // Chrome's role lookup finds nothing in a child frame, so the button there is found by its text.
-            string inner = browserKind == BrowserKind.Chrome ? "frame.GetByText(\"Inner\")" : "frame.GetByRole(\"button\", \"Inner\")";
             Assert.Equal(
                 [
                     "Frame frame = await page.GetByTitle(\"Child\").ContentFrameAsync();",
-                    $"await {inner}.ClickAsync();",
+                    "await frame.GetByRole(\"button\", \"Inner\").ClickAsync();",
                     "// Opens a dialog (confirm): \"Sure?\"\nawait page.GetByRole(\"button\", \"Confirm\").ClickAsync();",
                     "Download download = await page.RunAndWaitForDownloadAsync(() => page.GetByRole(\"link\", \"Report\").ClickAsync());",
                     "await page.RunAndWaitForNavigationAsync(() => page.GetByRole(\"link\", \"Next\").ClickAsync());",
@@ -187,19 +185,16 @@ public class CodeRecordingIntegrationTests
     public async Task PopupIsTheResultOfTheActionThatOpenedIt(BrowserKind browserKind)
     {
         await using TestPageServer server = await TestPageServer.StartAsync();
-
-        // Chrome never answers script commands in a popup (crbug.com/571161446), so recording there waits out this timeout and records nothing.
-        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind, new DramaturgeOptions() { NavigationTimeout = TimeSpan.FromSeconds(5) });
+        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
         await page.NavigateAsync(server.UrlFor("recording-effects.html"), cancellationToken: TestContext.Current.CancellationToken);
         CodeRecording recording = await group.DefaultBrowser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
-        bool recordsInPopups = browserKind != BrowserKind.Chrome;
         List<string> statements = [];
         TaskCompletionSource allSettled = new(TaskCreationOptions.RunContinuationsAsynchronously);
         recording.OnStatement.AddObserver(e =>
         {
             statements.Add(e.Statement);
-            if (statements.Count == (recordsInPopups ? 2 : 1))
+            if (statements.Count == 2)
             {
                 allSettled.TrySetResult();
             }
@@ -207,19 +202,15 @@ public class CodeRecordingIntegrationTests
 
         // The next action settles the last; a toolbar button does too, so the one that turns recording off comes last.
         Page popup = await page.RunAndWaitForPopupAsync(() => page.Locate(new CssLocator("#popup")).ClickAsync(cancellationToken: TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken);
-        if (recordsInPopups)
-        {
-            await popup.WaitForFunctionAsync("() => document.querySelector('dramaturge-toolbar') !== null", cancellationToken: TestContext.Current.CancellationToken);
-            await popup.Locate(new CssLocator("#inner")).ClickAsync(cancellationToken: TestContext.Current.CancellationToken);
-        }
+        await popup.WaitForFunctionAsync("() => document.querySelector('dramaturge-toolbar') !== null", cancellationToken: TestContext.Current.CancellationToken);
+        await popup.Locate(new CssLocator("#inner")).ClickAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await ClickToolbarAsync(popup, "Record");
 
-        await ClickToolbarAsync(recordsInPopups ? popup : page, "Record");
-
-        await allSettled.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Task settled = await Task.WhenAny(allSettled.Task, Task.Delay(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        Assert.True(settled == allSettled.Task, $"Recorded only: {string.Join(" | ", statements)}");
         await recording.StopAsync(TestContext.Current.CancellationToken);
 
-        string[] expected = ["Page page1 = await page.RunAndWaitForPopupAsync(() => page.GetByRole(\"button\", \"Open\").ClickAsync());"];
-        Assert.Equal(recordsInPopups ? [.. expected, "await page1.GetByRole(\"button\", \"Inner\").ClickAsync();"] : expected, statements);
+        Assert.Equal(["Page page1 = await page.RunAndWaitForPopupAsync(() => page.GetByRole(\"button\", \"Open\").ClickAsync());", "await page1.GetByRole(\"button\", \"Inner\").ClickAsync();"], statements);
     }
 
     // A protocol navigation is the browser's own, as typing an address is.

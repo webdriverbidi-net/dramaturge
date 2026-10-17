@@ -192,6 +192,7 @@ public sealed class CodeRecording : IAsyncDisposable
             recording.observers.Add(driver.BrowsingContext.OnDomContentLoaded.AddObserver(e => recording.OnDocumentLoaded(e.BrowsingContextId)));
             recording.observers.Add(driver.BrowsingContext.OnNavigationStarted.AddObserver(e => recording.OnPageEvent(e.BrowsingContextId, frame => frame == frame.Page.MainFrame && e.Url != "about:blank", page => recording.OnNavigationStartedAsync(page, e.NavigationId, e.Url))));
             recording.observers.Add(driver.BrowsingContext.OnNavigationCommitted.AddObserver(e => recording.CancelLookups(e.BrowsingContextId)));
+            recording.observers.Add(driver.BrowsingContext.OnContextCreated.AddObserver(e => recording.CancelLookups(e.Parent is null ? e.OriginalOpener : null)));
             recording.observers.Add(driver.BrowsingContext.OnNavigationCommitted.AddObserver(e => recording.OnPageEvent(e.BrowsingContextId, frame => frame == frame.Page.MainFrame, page => recording.OnNavigationCommittedAsync(page, e.NavigationId))));
             recording.observers.Add(driver.BrowsingContext.OnDownloadWillBegin.AddObserver(e => recording.OnPageEvent(e.BrowsingContextId, _ => true, page => recording.OnDownloadAsync(page, e.NavigationId))));
             recording.observers.Add(driver.BrowsingContext.OnUserPromptOpened.AddObserver(e => recording.OnPageEvent(e.BrowsingContextId, _ => true, page => recording.OnDialogAsync(page, e.PromptType, e.Message))));
@@ -562,10 +563,11 @@ public sealed class CodeRecording : IAsyncDisposable
     }
 
     // A navigation that commits cancels the lookups in the documents it replaced, its frame's and those of the frames
-    // within it, which would otherwise look in the new document, or, in Chrome, may never be answered.
-    private void CancelLookups(string contextId)
+    // within it, which would otherwise look in the new document, or, in Chrome, may never be answered. A popup cancels
+    // those of its opener, which goes behind it, where its accessibility tree is not searched.
+    private void CancelLookups(string? contextId)
     {
-        if (this.browser.Group.FindFrame(contextId) is not Frame navigated)
+        if (contextId is null || this.browser.Group.FindFrame(contextId) is not Frame navigated)
         {
             return;
         }
@@ -640,7 +642,7 @@ public sealed class CodeRecording : IAsyncDisposable
     }
 
     // A navigation is the effect of the action pending when it started, if that action is still pending and has caused
-    // none yet. Otherwise its document's report, which Chrome sometimes loses, tells the page's own navigation, which
+    // none yet. Otherwise its document's report tells the page's own navigation, which
     // replay repeats, from the user's, as when typing an address; a popup's first, before it is acted in, is its
     // opener's. A reported traversal of the history is the user's, by the browser's back or forward, since a page
     // rarely traverses its history without an action; a step back or forward is written as one.
@@ -939,9 +941,10 @@ public sealed class CodeRecording : IAsyncDisposable
         await this.onStatement.InvokeNotifyObserversAsync(new CodeStatementEventArgs(step.Text)).ConfigureAwait(false);
     }
 
+    // The recording leaves each page where it is: the user is working in the one in front.
     private TimeBudget CreateBudget(CancellationToken cancellationToken)
     {
-        return new TimeBudget(this.browser.Group.Options.NavigationTimeout, this.browser.Group.Options.TimeProvider, cancellationToken);
+        return new TimeBudget(this.browser.Group.Options.NavigationTimeout, this.browser.Group.Options.TimeProvider, cancellationToken).LeavingPagesBehind();
     }
 
     // Runs a step that may fail, as when its document has closed, logging the failure.

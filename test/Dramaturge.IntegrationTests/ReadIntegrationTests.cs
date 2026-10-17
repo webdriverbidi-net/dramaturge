@@ -5,9 +5,12 @@
 
 namespace Dramaturge;
 
+using System.IO.Compression;
+using System.Text;
 using Dramaturge.Browsers;
 using Dramaturge.TestUtilities;
 using WebDriverBiDi.BrowsingContext;
+using WebDriverBiDi.Script;
 
 public class ReadIntegrationTests
 {
@@ -84,24 +87,68 @@ public class ReadIntegrationTests
 
     [Theory]
     [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
-    public async Task ScreenshotCapturesAnElementInAFrame(BrowserKind browserKind)
+    public async Task ScreenshotCapturesAnElementOutOfViewInAFrameBelowTheFold(BrowserKind browserKind)
     {
-        Assert.SkipWhen(browserKind == BrowserKind.Chrome, "Chrome does not capture screenshots of a frame that is not top-level (\"Non-top-level 'context' is currently not supported\"), which the protocol permits (https://issues.chromium.org/issues/571157929).");
         await using TestPageServer server = await TestPageServer.StartAsync();
         await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
-        Page page = await OpenAsync(group, server);
+        Page page = await OpenAsync(group, server, "frame-screenshot.html");
         Frame frame = await page.Locate(new CssLocator("#frame")).ContentFrameAsync(cancellationToken: TestContext.Current.CancellationToken);
 
-        byte[] image = await frame.Locate(new CssLocator("#inner-button")).ScreenshotAsync(cancellationToken: TestContext.Current.CancellationToken);
+        DecodedImage image = DecodePng(await frame.Locate(new CssLocator("#target")).ScreenshotAsync(cancellationToken: TestContext.Current.CancellationToken));
 
-        Assert.True(PngSize(image).Width > 0);
+        Assert.Equal(await ScaledSizeAsync(page, 120, 60), image.Size);
+        Assert.Equal(0, image.CountUnlike(new Rgb(255, 0, 0)));
     }
 
-    private static async Task<Page> OpenAsync(BrowserGroup group, TestPageServer server)
+    [Theory]
+    [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
+    public async Task ScreenshotCapturesAnElementOutOfViewInANestedCrossOriginFrame(BrowserKind browserKind)
+    {
+        await using TestPageServer server = await TestPageServer.StartAsync();
+        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        Page page = await OpenAsync(group, server, "frame-screenshot-nested.html");
+        Frame outer = await page.Locate(new CssLocator("#outer")).ContentFrameAsync(cancellationToken: TestContext.Current.CancellationToken);
+        Frame inner = await outer.Locate(new CssLocator("#inner")).ContentFrameAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        DecodedImage image = DecodePng(await inner.Locate(new CssLocator("#target")).ScreenshotAsync(cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Equal(await ScaledSizeAsync(page, 120, 60), image.Size);
+        Assert.Equal(0, image.CountUnlike(new Rgb(255, 0, 0)));
+    }
+
+    [Theory]
+    [MemberData(nameof(TestBrowsers.All), MemberType = typeof(TestBrowsers))]
+    public async Task ScreenshotOfAnElementLargerThanItsFrameHasNothingFromAroundTheFrame(BrowserKind browserKind)
+    {
+        await using TestPageServer server = await TestPageServer.StartAsync();
+        await using BrowserGroup group = await TestBrowsers.LaunchAsync(browserKind);
+        Page page = await OpenAsync(group, server, "frame-screenshot.html");
+        Frame frame = await page.Locate(new CssLocator("#frame")).ContentFrameAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        DecodedImage image = DecodePng(await frame.Locate(new CssLocator("#big")).ScreenshotAsync(cancellationToken: TestContext.Current.CancellationToken));
+
+        // Chrome captures frames from the page, so only the part of the element its 300 by 200 frame shows, and
+        // with the frame's scroll bars over it where they are drawn over content.
+        Assert.Equal(browserKind == BrowserKind.Chrome ? await ScaledSizeAsync(page, 300, 200) : await ScaledSizeAsync(page, 500, 400), image.Size);
+        Assert.Equal(0, image.CountLike(new Rgb(255, 255, 0)) + image.CountLike(new Rgb(0, 0, 0)) + image.CountLike(new Rgb(0, 255, 0)));
+    }
+
+    private static async Task<Page> OpenAsync(BrowserGroup group, TestPageServer server, string pageName)
     {
         Page page = await group.DefaultBrowser.NewPageAsync(cancellationToken: TestContext.Current.CancellationToken);
-        await page.NavigateAsync(server.UrlFor("reads.html"), cancellationToken: TestContext.Current.CancellationToken);
+        await page.NavigateAsync(server.UrlFor(pageName), cancellationToken: TestContext.Current.CancellationToken);
         return page;
+    }
+
+    private static async Task<ImageSize> ScaledSizeAsync(Page page, int width, int height)
+    {
+        double ratio = (await page.MainFrame.EvaluateAsync("() => window.devicePixelRatio", cancellationToken: TestContext.Current.CancellationToken)).As<NumberRemoteValue>().Value;
+        return new ImageSize((int)Math.Round(width * ratio), (int)Math.Round(height * ratio));
+    }
+
+    private static Task<Page> OpenAsync(BrowserGroup group, TestPageServer server)
+    {
+        return OpenAsync(group, server, "reads.html");
     }
 
     // A PNG's width and height are big-endian integers at bytes 16 and 20 of its header.
@@ -111,5 +158,67 @@ public class ReadIntegrationTests
         return new ImageSize((image[16] << 24) | (image[17] << 16) | (image[18] << 8) | image[19], (image[20] << 24) | (image[21] << 16) | (image[22] << 8) | image[23]);
     }
 
+    // Decodes an 8-bit, non-interlaced RGB or RGBA PNG, as browsers capture.
+    private static DecodedImage DecodePng(byte[] image)
+    {
+        ImageSize size = PngSize(image);
+        int bytesPerPixel = image[25] == 6 ? 4 : 3;
+        using MemoryStream compressed = new();
+        for (int offset = 8; offset < image.Length;)
+        {
+            int length = (image[offset] << 24) | (image[offset + 1] << 16) | (image[offset + 2] << 8) | image[offset + 3];
+            if (Encoding.ASCII.GetString(image, offset + 4, 4) == "IDAT")
+            {
+                compressed.Write(image, offset + 8, length);
+            }
+
+            offset += length + 12;
+        }
+
+        compressed.Position = 0;
+        using ZLibStream inflater = new(compressed, CompressionMode.Decompress);
+        using MemoryStream filtered = new();
+        inflater.CopyTo(filtered);
+        byte[] data = filtered.ToArray();
+        int stride = size.Width * bytesPerPixel;
+        byte[] previous = new byte[stride];
+        List<Rgb> pixels = new(size.Width * size.Height);
+        for (int y = 0; y < size.Height; y++)
+        {
+            int filter = data[y * (stride + 1)];
+            byte[] row = new byte[stride];
+            for (int x = 0; x < stride; x++)
+            {
+                int left = x >= bytesPerPixel ? row[x - bytesPerPixel] : 0;
+                int up = previous[x];
+                int upLeft = x >= bytesPerPixel ? previous[x - bytesPerPixel] : 0;
+                int estimate = left + up - upLeft;
+                int nearest = Math.Abs(estimate - left) <= Math.Abs(estimate - up) && Math.Abs(estimate - left) <= Math.Abs(estimate - upLeft) ? left : Math.Abs(estimate - up) <= Math.Abs(estimate - upLeft) ? up : upLeft;
+                int predictor = filter switch { 1 => left, 2 => up, 3 => (left + up) / 2, 4 => nearest, _ => 0 };
+                row[x] = (byte)(data[(y * (stride + 1)) + 1 + x] + predictor);
+            }
+
+            for (int x = 0; x < stride; x += bytesPerPixel)
+            {
+                pixels.Add(new Rgb(row[x], row[x + 1], row[x + 2]));
+            }
+
+            previous = row;
+        }
+
+        return new DecodedImage(size, pixels);
+    }
+
     private readonly record struct ImageSize(int Width, int Height);
+
+    private readonly record struct Rgb(int Red, int Green, int Blue);
+
+    private sealed record DecodedImage(ImageSize Size, IReadOnlyList<Rgb> Pixels)
+    {
+        public int CountLike(Rgb color) => this.Pixels.Count(pixel => IsLike(pixel, color));
+
+        public int CountUnlike(Rgb color) => this.Pixels.Count(pixel => !IsLike(pixel, color));
+
+        private static bool IsLike(Rgb pixel, Rgb color) => Math.Abs(pixel.Red - color.Red) <= 40 && Math.Abs(pixel.Green - color.Green) <= 40 && Math.Abs(pixel.Blue - color.Blue) <= 40;
+    }
 }

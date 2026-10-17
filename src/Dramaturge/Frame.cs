@@ -455,6 +455,18 @@ public sealed class Frame
     }
 
     /// <summary>
+    /// Gets the size of the frame's viewport, without the scroll bars that take up room in it.
+    /// </summary>
+    /// <param name="budget">The time the read may take.</param>
+    /// <returns>The viewport's size.</returns>
+    internal async Task<CssSize> GetViewportSizeAsync(TimeBudget budget)
+    {
+        RemoteValue size = await this.Group.Driver.Script.CallFunctionAsync(this.Id, "() => { const view = document.compatMode === 'BackCompat' && document.body ? document.body : document.documentElement; return [view.clientWidth, view.clientHeight]; }", [], this.Group.Options.SandboxName, budget.Remaining, budget.CancellationToken).ConfigureAwait(false);
+        RemoteValueList values = size.As<CollectionRemoteValue>().Value!;
+        return new CssSize(values[0].As<NumberRemoteValue>().Value, values[1].As<NumberRemoteValue>().Value);
+    }
+
+    /// <summary>
     /// Gets how far the frame's document is scrolled.
     /// </summary>
     /// <param name="budget">The time the read may take.</param>

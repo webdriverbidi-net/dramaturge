@@ -102,15 +102,12 @@ internal sealed class HarRouter
         }
     }
 
-    // A body the browser did not keep, such as one larger than any recorded body, matches no recorded body. The body
-    // is not disowned, which in Chrome makes the stopped request unknown (crbug.com/571267468), so that it can no longer be answered; the
-    // collector's bodies are released when it is removed. Once chromium-bidi keeps a request whose data was disowned,
-    // set DisownCollectedData here again.
+    // A body the browser did not keep, such as one larger than any recorded body, matches no recorded body.
     private async Task<byte[]?> ReadBodyAsync(RequestData request)
     {
         try
         {
-            GetDataCommandParameters parameters = new(request.RequestId, DataType.Request) { CollectorId = this.collectorId };
+            GetDataCommandParameters parameters = new(request.RequestId, DataType.Request) { CollectorId = this.collectorId, DisownCollectedData = true };
             GetDataCommandResult result = await this.group.Driver.Network.GetDataAsync(parameters).ConfigureAwait(false);
             return result.Bytes.ValueAsByteArray;
         }
