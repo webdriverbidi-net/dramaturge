@@ -37,6 +37,7 @@ public sealed class CodeRecording : IAsyncDisposable
     private readonly Dictionary<Page, StartedNavigation> navigations = [];
     private readonly Dictionary<Page, Dictionary<string, int?>> reportedNavigations = [];
     private readonly Dictionary<Frame, CancellationTokenSource> lookupSources = [];
+    private readonly Dictionary<string, TaskCompletionSource<bool>> flushes = [];
     private readonly Dictionary<Page, string> libraryNavigations = [];
     private readonly ObservableEventInvocable<CodeStatementEventArgs> onStatement = new("automation.codeStatement");
     private readonly ObservableEventInvocable<CodeStatementEventArgs> onPendingStatement = new("automation.codePendingStatement");
@@ -85,14 +86,16 @@ public sealed class CodeRecording : IAsyncDisposable
     public ObservableEvent<LocatorPickedEventArgs> OnLocatorPicked => this.onLocatorPicked;
 
     /// <summary>
-    /// Gets the whole file for a target, which can differ from the recording's, once what the browser has reported so
-    /// far is recorded: the statements settled, and the one still open.
+    /// Gets the whole file for a target, which can differ from the recording's, once everything the recorded documents
+    /// have reported so far, even what the browser has yet to deliver, is recorded: the statements settled, and the
+    /// one still open.
     /// </summary>
     /// <param name="target">The target.</param>
     /// <returns>The file.</returns>
     /// <remarks>Each report is recorded within the recording's own time limits, as when it stops.</remarks>
     public async Task<string> GetCodeAsync(CodeTarget target)
     {
+        await this.FlushAsync(CancellationToken.None).ConfigureAwait(false);
         await this.ProcessReceivedAsync().ConfigureAwait(false);
         return this.Write(target);
     }
@@ -113,6 +116,7 @@ public sealed class CodeRecording : IAsyncDisposable
                 return this.Code;
             }
 
+            await this.FlushAsync(cancellationToken).ConfigureAwait(false);
             Task processed;
             lock (this.lockObject)
             {
@@ -399,7 +403,7 @@ public sealed class CodeRecording : IAsyncDisposable
 
         Task installed = this.RunStepAsync(
             $"Starting the code recording in browsing context {contextId}",
-            () => this.browser.Group.ScriptHost.CallRecorderAsync(contextId, "(recorder, send, testIdAttribute, mode, showToolbar, layout) => recorder.start(send, testIdAttribute, mode, showToolbar, layout)", [channel, LocalValue.String(this.browser.Group.Options.TestIdAttribute), LocalValue.String(current), LocalValue.Boolean(this.showToolbar), layout is null ? LocalValue.Null : LocalValue.String(layout)], this.CreateBudget(CancellationToken.None)));
+            () => this.browser.Group.ScriptHost.CallRecorderAsync(contextId, "(recorder, send, testIdAttribute, mode, showToolbar, layout) => { recorder.dramaturgeSend = send; return recorder.start(send, testIdAttribute, mode, showToolbar, layout); }", [channel, LocalValue.String(this.browser.Group.Options.TestIdAttribute), LocalValue.String(current), LocalValue.Boolean(this.showToolbar), layout is null ? LocalValue.Null : LocalValue.String(layout)], this.CreateBudget(CancellationToken.None)));
         lock (this.lockObject)
         {
             this.installs[contextId] = installed;
@@ -411,16 +415,79 @@ public sealed class CodeRecording : IAsyncDisposable
     // The sender's frame is found as the message arrives: its page may close before the message is handled.
     private void OnMessage(MessageEventArgs e)
     {
-        Frame? frame = e.Source.BrowsingContextId is string contextId ? this.browser.Group.FindFrame(contextId) : null;
-        if (e.ChannelId == this.channelId && frame?.Page.Browser == this.browser)
+        if (e.ChannelId != this.channelId)
         {
-            RemoteValueList data = e.Data.As<CollectionRemoteValue>().Value!;
+            return;
+        }
+
+        // A flush's marker is taken even from a document that has closed since it was sent.
+        RemoteValueList data = e.Data.As<CollectionRemoteValue>().Value!;
+        Frame? frame = e.Source.BrowsingContextId is string contextId ? this.browser.Group.FindFrame(contextId) : null;
+        if (!this.TakeFlushed(data) && frame?.Page.Browser == this.browser)
+        {
             if (!this.TakeToolbarState(data))
             {
                 CancellationToken lookups = this.GetLookupToken(frame);
                 this.Enqueue(() => this.HandleAsync(frame, data, lookups));
             }
         }
+    }
+
+    // A document's messages arrive in the order it sends them, so once a marker sent through its channel after them
+    // arrives, they all have: what has been done is recorded before the code is read or the recording stops. A
+    // document that cannot send one, as one that has closed, is not waited for.
+    private async Task FlushAsync(CancellationToken cancellationToken)
+    {
+        KeyValuePair<string, Task>[] documents;
+        lock (this.lockObject)
+        {
+            documents = [.. this.installs];
+        }
+
+        await Task.WhenAll(documents.Select(document => this.FlushDocumentAsync(document.Key, document.Value, cancellationToken))).ConfigureAwait(false);
+    }
+
+    private async Task FlushDocumentAsync(string contextId, Task installed, CancellationToken cancellationToken)
+    {
+        string token = Guid.NewGuid().ToString("N");
+        TaskCompletionSource<bool> flushed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (this.lockObject)
+        {
+            this.flushes[token] = flushed;
+        }
+
+        TimeBudget budget = this.CreateBudget(cancellationToken);
+        try
+        {
+            await installed.ConfigureAwait(false);
+            await this.browser.Group.ScriptHost.CallRecorderAsync(contextId, "(recorder, token) => { recorder.dramaturgeSend([JSON.stringify({ kind: 'flushed', token })]); }", [LocalValue.String(token)], budget).ConfigureAwait(false);
+            await budget.WaitAsync(flushed.Task, "the document's recorded messages to arrive").ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // The document could not send the marker, or it did not arrive in time; nothing more is waited for.
+        }
+    }
+
+    // A flush's marker is taken as it arrives, and is not recorded.
+    private bool TakeFlushed(RemoteValueList data)
+    {
+        using JsonDocument document = JsonDocument.Parse(data[0].As<StringRemoteValue>().Value);
+        if (document.RootElement.GetProperty("kind").GetString() != "flushed")
+        {
+            return false;
+        }
+
+        TaskCompletionSource<bool> flushed;
+        lock (this.lockObject)
+        {
+            string token = document.RootElement.GetProperty("token").GetString()!;
+            flushed = this.flushes[token];
+            this.flushes.Remove(token);
+        }
+
+        flushed.TrySetResult(true);
+        return true;
     }
 
     // An event in one of the browser's frames that satisfies a condition is handled for the frame's page.

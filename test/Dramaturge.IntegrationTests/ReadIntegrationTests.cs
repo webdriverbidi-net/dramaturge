@@ -126,10 +126,12 @@ public class ReadIntegrationTests
         Frame frame = await page.Locate(new CssLocator("#frame")).ContentFrameAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         DecodedImage image = DecodePng(await frame.Locate(new CssLocator("#big")).ScreenshotAsync(cancellationToken: TestContext.Current.CancellationToken));
+        RemoteValueList shown = (await frame.EvaluateAsync("() => [document.documentElement.clientWidth, document.documentElement.clientHeight]", cancellationToken: TestContext.Current.CancellationToken)).As<CollectionRemoteValue>().Value!;
 
-        // Chrome captures frames from the page, so only the part of the element its 300 by 200 frame shows, and
-        // with the frame's scroll bars over it where they are drawn over content.
-        Assert.Equal(browserKind == BrowserKind.Chrome ? await ScaledSizeAsync(page, 300, 200) : await ScaledSizeAsync(page, 500, 400), image.Size);
+        // Chrome captures frames from the page, so only the part of the element its 300 by 200 frame shows: within
+        // the frame's scroll bars where they take up room, as on Linux and Windows, and under them where they are
+        // drawn over content, as on macOS.
+        Assert.Equal(browserKind == BrowserKind.Chrome ? await ScaledSizeAsync(page, (int)shown[0].As<NumberRemoteValue>().Value, (int)shown[1].As<NumberRemoteValue>().Value) : await ScaledSizeAsync(page, 500, 400), image.Size);
         Assert.Equal(0, image.CountLike(new Rgb(255, 255, 0)) + image.CountLike(new Rgb(0, 0, 0)) + image.CountLike(new Rgb(0, 255, 0)));
     }
 

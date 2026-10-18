@@ -135,6 +135,48 @@ public class CodeRecordingTests
         Assert.Equal(["await page.Locate(new CssLocator(\"#name\")).FillAsync(\"Ad\");", "await page.Locate(new CssLocator(\"#save\")).ClickAsync();"], statements);
     }
 
+    // A browser may deliver an action's message after the action's own answer, so stopping first waits for the
+    // messages each document sent before it: a marker sent through the document's channel arrives after them.
+    [Fact]
+    public async Task MessageDeliveredAfterStoppingBeginsIsRecorded()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.RemoteEnd.HoldAnswers("script.callFunction", release.Task);
+
+        Task<string> stopped = recording.StopAsync(TestContext.Current.CancellationToken);
+        await session.RemoteEnd.WaitForCommandAsync("script.callFunction", 2);
+        await SendAsync(driver, session, channel, page.Id, Click("#go"));
+        release.SetResult();
+        string code = await stopped;
+
+        Assert.Contains("await page.Locate(new CssLocator(\"#go\")).ClickAsync();", code);
+    }
+
+    // Reading the code waits likewise.
+    [Fact]
+    public async Task MessageDeliveredAfterTheCodeIsAskedForIsInIt()
+    {
+        (BiDiDriver driver, FakeSession session, Page page) = await OpenPageAsync();
+        await using BiDiDriver ownedDriver = driver;
+        CodeRecording recording = await page.Browser.RecordCodeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        string channel = await GetChannelAsync(session);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.RemoteEnd.HoldAnswers("script.callFunction", release.Task);
+
+        Task<string> written = recording.GetCodeAsync(CodeTarget.Program);
+        await session.RemoteEnd.WaitForCommandAsync("script.callFunction", 2);
+        await SendAsync(driver, session, channel, page.Id, Click("#go"));
+        release.SetResult();
+        string code = await written;
+        await recording.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Contains("await page.Locate(new CssLocator(\"#go\")).ClickAsync();", code);
+    }
+
     [Fact]
     public async Task FillsOfOneFieldAndClicksOfOneSeriesAreOneStatement()
     {
@@ -303,11 +345,14 @@ public class CodeRecordingTests
         Assert.Equal([page.Browser.Id], subscription["userContexts"]!.AsArray().Select(id => (string?)id));
         List<JsonObject> calls = [.. session.RemoteEnd.CommandsFor("script.callFunction").Select(call => call["params"]!.AsObject())];
         string?[] contexts = [.. calls.Select(call => (string?)call["target"]!["context"])];
-        Assert.Equal(6, calls.Count);
+        Assert.Equal(9, calls.Count);
         Assert.Equal([page.Id, frame.Id], contexts[..2].Order());
-        Assert.Equal([popup.Id, page.Id, frame.Id, popup.Id], contexts[2..]);
+        Assert.Equal(popup.Id, contexts[2]);
+        Assert.Equal(new[] { page.Id, frame.Id, popup.Id }.Order(), contexts[3..6].Order());
+        Assert.Equal([page.Id, frame.Id, popup.Id], contexts[6..]);
         Assert.All(calls[..3], call => Assert.Contains("recorder.start(send, testIdAttribute, mode, showToolbar, layout)", (string?)call["functionDeclaration"]));
-        Assert.All(calls[3..], call => Assert.Contains("recorder.stop()", (string?)call["functionDeclaration"]));
+        Assert.All(calls[3..6], call => Assert.Contains("recorder.dramaturgeSend(", (string?)call["functionDeclaration"]));
+        Assert.All(calls[6..], call => Assert.Contains("recorder.stop()", (string?)call["functionDeclaration"]));
         JsonObject channel = calls[0]["arguments"]![0]!.AsObject();
         Assert.Equal("channel", (string?)channel["type"]);
         Assert.StartsWith("dramaturge-code-", (string?)channel["value"]!["channel"]);
