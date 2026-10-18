@@ -26,6 +26,7 @@ public sealed class FakeRemoteEnd : Connection
     private readonly ConcurrentDictionary<string, ErrorResponse> errors = new();
     private readonly ConcurrentDictionary<string, bool> unansweredMethods = new();
     private readonly ConcurrentDictionary<string, Task> heldMethods = new();
+    private readonly ConcurrentDictionary<string, string> recorderChannels = new();
     private TaskCompletionSource<bool> closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int isOpenFlag;
     private int identifierCount;
@@ -241,7 +242,7 @@ public sealed class FakeRemoteEnd : Connection
                 response["message"] = answer.ErrorMessage;
             }
 
-            events = [.. answer.EventsBefore.Select(e => new JsonObject() { ["type"] = "event", ["method"] = e.Method, ["params"] = e.Parameters })];
+            events = [.. answer.EventsBefore.Select(e => new JsonObject() { ["type"] = "event", ["method"] = e.Method, ["params"] = e.Parameters }), .. this.RecorderMessages(method, parameters)];
         }
 
         // Answered asynchronously, as a remote end would, rather than within the send.
@@ -278,6 +279,29 @@ public sealed class FakeRemoteEnd : Connection
         IMemoryOwner<byte> owner = MemoryPool<byte>.Shared.Rent(bytes.Length);
         bytes.CopyTo(owner.Memory);
         return this.NotifyDataReceivedObserverAsync(owner, bytes.Length);
+    }
+
+    // A code recording keeps the channel its recorder started with in each document, and sends a marker through it
+    // to learn that the document's earlier messages have arrived; the page would send the marker back, so this does.
+    private IEnumerable<JsonObject> RecorderMessages(string method, JsonObject parameters)
+    {
+        if (method != "script.callFunction" || (string?)parameters["target"]?["context"] is not string contextId)
+        {
+            yield break;
+        }
+
+        JsonArray arguments = parameters["arguments"] as JsonArray ?? [];
+        if (arguments.FirstOrDefault(argument => (string?)argument?["type"] == "channel") is JsonNode channel)
+        {
+            this.recorderChannels[contextId] = (string)channel["value"]!["channel"]!;
+        }
+
+        if (((string?)parameters["functionDeclaration"])?.Contains("recorder.dramaturgeSend(", StringComparison.Ordinal) == true && this.recorderChannels.TryGetValue(contextId, out string? recorderChannel))
+        {
+            string marker = new JsonObject() { ["kind"] = "flushed", ["token"] = (string?)arguments[0]!["value"] }.ToJsonString();
+            JsonObject data = new() { ["type"] = "array", ["value"] = new JsonArray(new JsonObject() { ["type"] = "string", ["value"] = marker }) };
+            yield return new JsonObject() { ["type"] = "event", ["method"] = "script.message", ["params"] = new JsonObject() { ["channel"] = recorderChannel, ["data"] = data, ["source"] = new JsonObject() { ["realm"] = "realm-1", ["context"] = contextId } } };
+        }
     }
 
     private JsonObject CreateDefaultResult(string method)
