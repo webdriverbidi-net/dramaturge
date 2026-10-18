@@ -20,9 +20,9 @@
   <ItemGroup>
     <!-- Package dependencies are restored for this project's own framework, not the pinned one, so the polyfills the
          netstandard2.0 builds need at run time, and net10.0 does not provide, are requested here. -->
-    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.12" />
-    <PackageReference Include="Microsoft.Bcl.Memory" Version="10.0.12" />
-    <PackageReference Include="Microsoft.Bcl.TimeProvider" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Bcl.Memory" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Bcl.TimeProvider" Version="10.0.13" />
   </ItemGroup>
 
 </Project>
