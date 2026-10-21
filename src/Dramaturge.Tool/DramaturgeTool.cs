@@ -11,9 +11,9 @@ using System.CommandLine.Parsing;
 using System.Globalization;
 using System.Text.Json;
 using Dramaturge.Browsers;
+using Dramaturge.Tool.Mcp;
 using Dramaturge.Tool.Sessions;
 using WebDriverBiDi;
-using WebDriverBiDi.Session;
 
 /// <summary>
 /// The dramaturge tool: installs, lists, and removes, under its browsers command, the browsers and drivers that
@@ -127,10 +127,20 @@ public static class DramaturgeTool
 
         Option<string> sessionOption = new("--session") { Description = "The session's name.", DefaultValueFactory = _ => SessionPaths.DefaultName };
         Option<bool> jsonOption = new("--json") { Description = "Write the result, or the error, as one line of JSON." };
-        Command session = CreateSessionCommand(args, pathOption, sessionOption, jsonOption, createDownloadOptions, progress, configureLauncher, sessionHost, output, error);
+        SessionOptions sessionOptions = new();
+        Command session = CreateSessionCommand(sessionOptions, pathOption, sessionOption, jsonOption, createDownloadOptions, progress, configureLauncher, sessionHost, output, error);
+
+        Command mcp = new("mcp", "Serve the session commands to an MCP host over standard input and output. Every session the host starts gets the options given here.");
+        foreach (Option option in sessionOptions.All)
+        {
+            mcp.Options.Add(option);
+        }
+
+        mcp.Options.Add(pathOption);
+        mcp.SetAction((parseResult, token) => McpSessionServer.RunAsync(sessionOptions.Settings(parseResult, SessionPaths.DefaultName, BrowserKind.Chrome, null), parseResult.GetValue(pathOption), sessionHost, output, error, token));
 
         // A RootCommand would name itself for the entry assembly, Dramaturge.Tool, rather than the command.
-        Command root = new(CommandName, "Installs, lists, and removes the browsers and drivers that Dramaturge.Browsers caches, records browser actions as C#, and runs browser sessions that commands drive.") { browsers, codegen, session };
+        Command root = new(CommandName, "Installs, lists, and removes the browsers and drivers that Dramaturge.Browsers caches, records browser actions as C#, runs browser sessions that commands drive, and serves those commands to MCP hosts.") { browsers, codegen, session, mcp };
         foreach (Command command in CreatePageCommands(sessionOption, jsonOption, sessionHost, output, error))
         {
             root.Subcommands.Add(command);
@@ -154,39 +164,142 @@ public static class DramaturgeTool
         return parseResult.InvokeAsync(new InvocationConfiguration() { Output = output, Error = error }, cancellationToken);
     }
 
-    // The settings start takes are passed on, as they were given, to the serve it starts.
-    private static Command CreateSessionCommand(string[] args, Option<string?> pathOption, Option<string> sessionOption, Option<bool> jsonOption, Func<string?, IProgress<BrowserDownloadProgress>, BrowserDownloadOptions> createDownloadOptions, ProgressWriter progress, Func<BrowserLauncherBuilder, BrowserLauncherBuilder> configureLauncher, SessionHost host, TextWriter output, TextWriter error)
+    /// <summary>
+    /// Checks a session's settings as a command line would be checked.
+    /// </summary>
+    /// <param name="settings">The settings.</param>
+    /// <returns>What is wrong with them, or <see langword="null"/> when nothing is.</returns>
+    internal static string? CheckSettings(SessionSettings settings)
+    {
+        string? problem = SessionPaths.CheckName(settings.Name);
+        if (problem is null && settings.IdleTimeout <= TimeSpan.Zero)
+        {
+            problem = "--idle-timeout must be at least 1 minute.";
+        }
+
+        problem ??= settings.AllowedOrigins.FirstOrDefault(origin => !IsOrigin(origin)) is string notOrigin ? $"'{notOrigin}' is not an origin, such as https://example.com." : null;
+        problem ??= settings.UploadDirectories.Append(settings.DownloadDirectory ?? Environment.CurrentDirectory).FirstOrDefault(directory => !Directory.Exists(directory)) is string notDirectory ? $"'{notDirectory}' is not a directory." : null;
+
+        try
+        {
+            _ = settings.Channel is null ? default : Target.ParseChannel(settings.Browser, settings.Channel);
+        }
+        catch (ArgumentException ex)
+        {
+            problem ??= ex.Message;
+        }
+
+        return problem;
+    }
+
+    /// <summary>
+    /// Starts a session's daemon. A session already running under the name is left alone; a socket nothing answers is
+    /// what a session that did not stop cleanly left, and is removed.
+    /// </summary>
+    /// <param name="settings">The session's settings.</param>
+    /// <param name="cachePath">The browser cache directory, or <see langword="null"/> for the default.</param>
+    /// <param name="host">Where sessions are kept, and how their daemons start.</param>
+    /// <param name="progress">The writer for the daemon's progress, such as a browser download's.</param>
+    /// <param name="cancellationToken">A token that cancels the start.</param>
+    /// <returns>The outcome: the session's name and browser, or why it did not start.</returns>
+    internal static async Task<CommandOutcome> StartSessionAsync(SessionSettings settings, string? cachePath, SessionHost host, TextWriter progress, CancellationToken cancellationToken)
+    {
+        if (CheckSettings(settings) is string problem)
+        {
+            return CommandOutcome.Failure(new SessionError(CommandOutput.Usage, problem));
+        }
+
+        string socketPath = SessionPaths.SocketPath(SessionPaths.Prepare(host.Directory), settings.Name);
+        if (File.Exists(socketPath))
+        {
+            SessionReply reply = await SessionClient.SendAsync(socketPath, settings.Name, "status", NoArguments, cancellationToken).ConfigureAwait(false);
+            if (reply.Error is null)
+            {
+                return CommandOutcome.Failure(new SessionError("session-exists", $"A session named '{settings.Name}' is running.", "Stop it with 'dramaturge session stop', or name another with --session."));
+            }
+
+            File.Delete(socketPath);
+        }
+
+        if (await host.StartDaemon(settings.ServeArguments(cachePath), progress, cancellationToken).ConfigureAwait(false) is string failure)
+        {
+            return CommandOutcome.Failure(new SessionError("start-failed", failure));
+        }
+
+        string browser = settings.Browser.ToString().ToLowerInvariant();
+        return CommandOutcome.Success(new Dictionary<string, object?>() { ["name"] = settings.Name, ["browser"] = browser }, $"Started session '{settings.Name}' ({browser}).");
+    }
+
+    /// <summary>
+    /// Lists the sessions running. Each socket that answers is one; one that does not is removed.
+    /// </summary>
+    /// <param name="host">Where sessions are kept.</param>
+    /// <param name="cancellationToken">A token that cancels the listing.</param>
+    /// <returns>The outcome: each session's name, browser, and start time.</returns>
+    internal static async Task<CommandOutcome> ListSessionsAsync(SessionHost host, CancellationToken cancellationToken)
+    {
+        List<Dictionary<string, object?>> sessions = [];
+        foreach (string socketPath in Directory.GetFiles(SessionPaths.Prepare(host.Directory), "*.sock").Order(StringComparer.Ordinal))
+        {
+            string name = Path.GetFileNameWithoutExtension(socketPath);
+            SessionReply reply = await SessionClient.SendAsync(socketPath, name, "status", NoArguments, cancellationToken).ConfigureAwait(false);
+            if (reply.Result is JsonElement status)
+            {
+                sessions.Add(new Dictionary<string, object?>() { ["name"] = name, ["browser"] = status.GetProperty("browser").GetString(), ["started"] = status.GetProperty("started").GetString() });
+            }
+            else
+            {
+                File.Delete(socketPath);
+            }
+        }
+
+        string[] text = sessions.Count == 0 ? ["No sessions are running."] : [.. sessions.Select(session => $"{session["name"]}\t{session["browser"]}\tstarted {session["started"]}")];
+        return CommandOutcome.Success(new Dictionary<string, object?>() { ["sessions"] = sessions }, text);
+    }
+
+    /// <summary>
+    /// Stops a session, closing its browser.
+    /// </summary>
+    /// <param name="name">The session's name.</param>
+    /// <param name="host">Where sessions are kept.</param>
+    /// <param name="cancellationToken">A token that cancels the stop.</param>
+    /// <returns>The outcome: the session's name, or why it was not stopped.</returns>
+    internal static async Task<CommandOutcome> StopSessionAsync(string name, SessionHost host, CancellationToken cancellationToken)
+    {
+        if (SessionPaths.CheckName(name) is string problem)
+        {
+            return CommandOutcome.Failure(new SessionError(CommandOutput.Usage, problem));
+        }
+
+        string socketPath = SessionPaths.SocketPath(SessionPaths.Prepare(host.Directory), name);
+        SessionReply reply = await SessionClient.SendAsync(socketPath, name, "stop", NoArguments, cancellationToken).ConfigureAwait(false);
+        if (reply.Error is SessionError failure)
+        {
+            File.Delete(socketPath);
+            return CommandOutcome.Failure(failure);
+        }
+
+        return CommandOutcome.Success(new Dictionary<string, object?>() { ["name"] = name }, $"Stopped session '{name}'.");
+    }
+
+    // The settings start takes are passed on to the serve it starts.
+    private static Command CreateSessionCommand(SessionOptions sessionOptions, Option<string?> pathOption, Option<string> sessionOption, Option<bool> jsonOption, Func<string?, IProgress<BrowserDownloadProgress>, BrowserDownloadOptions> createDownloadOptions, ProgressWriter progress, Func<BrowserLauncherBuilder, BrowserLauncherBuilder> configureLauncher, SessionHost host, TextWriter output, TextWriter error)
     {
         Option<BrowserKind> browserOption = new("--browser") { Description = "The browser to drive.", DefaultValueFactory = _ => BrowserKind.Chrome };
         Option<string?> channelOption = new("--channel") { Description = "The browser's release channel, as browsers install names it: stable (the default), beta, dev, and canary for Chrome and Edge, or nightly and esr for Firefox." };
-        Option<bool> headedOption = new("--headed") { Description = "Show the browser's window. By default the browser has none." };
-        Option<string?> userDataDirectoryOption = new("--user-data-dir") { Description = "A profile directory for the browser to keep. By default it gets a temporary one." };
-        Option<int> idleTimeoutOption = new("--idle-timeout") { Description = "The minutes the session waits for a command before it stops.", DefaultValueFactory = _ => 30 };
-        Option<bool> maskPasswordsOption = new("--mask-passwords") { Description = "Write values typed into, or expected of, password fields in the session's code as a read of the DRAMATURGE_PASSWORD environment variable." };
-        Option<string[]> allowOriginOption = new("--allow-origin") { Description = "An origin, such as https://example.com, the session's pages may navigate to; give it once for each. By default every origin is allowed." };
-        Option<bool> allowFileUrlsOption = new("--allow-file-urls") { Description = "Let the session open file: URLs." };
-        Option<string> dialogsOption = new("--dialogs") { Description = "How the browser answers the dialogs pages open, such as confirm: dismiss (the default) or accept.", DefaultValueFactory = _ => "dismiss" };
-        dialogsOption.AcceptOnlyFromAmong("dismiss", "accept");
-        Option<string?> downloadsOption = new("--downloads") { Description = "A directory to save downloads in. By default the session refuses them." };
-        Option<string[]> allowUploadFromOption = new("--allow-upload-from") { Description = "A directory files may be uploaded from, with those below it, besides the one the session is started in; give it once for each." };
         Option<bool> detachedOption = new("--detached") { Hidden = true };
-        SessionSettings Settings(ParseResult parseResult) => new(
-            parseResult.GetValue(sessionOption)!,
-            parseResult.GetValue(browserOption),
-            parseResult.GetValue(channelOption),
-            parseResult.GetValue(headedOption),
-            parseResult.GetValue(userDataDirectoryOption),
-            TimeSpan.FromMinutes(parseResult.GetValue(idleTimeoutOption)),
-            parseResult.GetValue(maskPasswordsOption),
-            parseResult.GetValue(allowOriginOption) ?? [],
-            parseResult.GetValue(allowFileUrlsOption),
-            parseResult.GetValue(dialogsOption) == "accept" ? UserPromptHandlerType.Accept : UserPromptHandlerType.Dismiss,
-            [Environment.CurrentDirectory, .. parseResult.GetValue(allowUploadFromOption) ?? []],
-            parseResult.GetValue(downloadsOption));
+        SessionSettings Settings(ParseResult parseResult) => sessionOptions.Settings(parseResult, parseResult.GetValue(sessionOption)!, parseResult.GetValue(browserOption), parseResult.GetValue(channelOption));
         Func<ParseResult, CancellationToken, Task<int>> Written(Func<ParseResult, CancellationToken, Task<CommandOutcome>> run) => WrittenAction(run, jsonOption, output, error);
 
-        Command start = new("start", "Start a browser session that later commands drive, and that stops with session stop, when its browser closes, or when it is idle.") { sessionOption, browserOption, channelOption, headedOption, userDataDirectoryOption, idleTimeoutOption, maskPasswordsOption, allowOriginOption, allowFileUrlsOption, dialogsOption, allowUploadFromOption, downloadsOption, pathOption, jsonOption };
-        start.SetAction(Written((parseResult, token) => StartSessionAsync(["session", "serve", .. args.Skip(2)], Settings(parseResult), host, error, token)));
+        Command start = new("start", "Start a browser session that later commands drive, and that stops with session stop, when its browser closes, or when it is idle.") { sessionOption, browserOption, channelOption };
+        foreach (Option option in sessionOptions.All)
+        {
+            start.Options.Add(option);
+        }
+
+        start.Options.Add(pathOption);
+        start.Options.Add(jsonOption);
+        start.SetAction(Written((parseResult, token) => StartSessionAsync(Settings(parseResult), parseResult.GetValue(pathOption), host, error, token)));
 
         Command serve = new("serve", "Serve a session; session start runs it.") { Hidden = true };
         foreach (Option option in start.Options)
@@ -212,94 +325,6 @@ public static class DramaturgeTool
         stop.SetAction(Written((parseResult, token) => StopSessionAsync(parseResult.GetValue(sessionOption)!, host, token)));
 
         return new Command("session", "Start, list, and stop browser sessions that commands drive.") { start, list, stop, serve };
-    }
-
-    // A session already running under the name is left alone; a socket nothing answers is what a session that did not
-    // stop cleanly left, and is removed.
-    private static async Task<CommandOutcome> StartSessionAsync(string[] serveArguments, SessionSettings settings, SessionHost host, TextWriter progress, CancellationToken cancellationToken)
-    {
-        string? problem = SessionPaths.CheckName(settings.Name);
-        if (problem is null && settings.IdleTimeout <= TimeSpan.Zero)
-        {
-            problem = "--idle-timeout must be at least 1 minute.";
-        }
-
-        problem ??= settings.AllowedOrigins.FirstOrDefault(origin => !IsOrigin(origin)) is string notOrigin ? $"'{notOrigin}' is not an origin, such as https://example.com." : null;
-        problem ??= settings.UploadDirectories.Append(settings.DownloadDirectory ?? Environment.CurrentDirectory).FirstOrDefault(directory => !Directory.Exists(directory)) is string notDirectory ? $"'{notDirectory}' is not a directory." : null;
-
-        try
-        {
-            _ = settings.Channel is null ? default : Target.ParseChannel(settings.Browser, settings.Channel);
-        }
-        catch (ArgumentException ex)
-        {
-            problem ??= ex.Message;
-        }
-
-        if (problem is not null)
-        {
-            return CommandOutcome.Failure(new SessionError(CommandOutput.Usage, problem));
-        }
-
-        string socketPath = SessionPaths.SocketPath(SessionPaths.Prepare(host.Directory), settings.Name);
-        if (File.Exists(socketPath))
-        {
-            SessionReply reply = await SessionClient.SendAsync(socketPath, settings.Name, "status", NoArguments, cancellationToken).ConfigureAwait(false);
-            if (reply.Error is null)
-            {
-                return CommandOutcome.Failure(new SessionError("session-exists", $"A session named '{settings.Name}' is running.", "Stop it with 'dramaturge session stop', or name another with --session."));
-            }
-
-            File.Delete(socketPath);
-        }
-
-        if (await host.StartDaemon(serveArguments, progress, cancellationToken).ConfigureAwait(false) is string failure)
-        {
-            return CommandOutcome.Failure(new SessionError("start-failed", failure));
-        }
-
-        string browser = settings.Browser.ToString().ToLowerInvariant();
-        return CommandOutcome.Success(new Dictionary<string, object?>() { ["name"] = settings.Name, ["browser"] = browser }, $"Started session '{settings.Name}' ({browser}).");
-    }
-
-    // Each socket that answers is a session running; one that does not is removed.
-    private static async Task<CommandOutcome> ListSessionsAsync(SessionHost host, CancellationToken cancellationToken)
-    {
-        List<Dictionary<string, object?>> sessions = [];
-        foreach (string socketPath in Directory.GetFiles(SessionPaths.Prepare(host.Directory), "*.sock").Order(StringComparer.Ordinal))
-        {
-            string name = Path.GetFileNameWithoutExtension(socketPath);
-            SessionReply reply = await SessionClient.SendAsync(socketPath, name, "status", NoArguments, cancellationToken).ConfigureAwait(false);
-            if (reply.Result is JsonElement status)
-            {
-                sessions.Add(new Dictionary<string, object?>() { ["name"] = name, ["browser"] = status.GetProperty("browser").GetString(), ["started"] = status.GetProperty("started").GetString() });
-            }
-            else
-            {
-                File.Delete(socketPath);
-            }
-        }
-
-        string[] text = sessions.Count == 0 ? ["No sessions are running."] : [.. sessions.Select(session => $"{session["name"]}\t{session["browser"]}\tstarted {session["started"]}")];
-        return CommandOutcome.Success(new Dictionary<string, object?>() { ["sessions"] = sessions }, text);
-    }
-
-    private static async Task<CommandOutcome> StopSessionAsync(string name, SessionHost host, CancellationToken cancellationToken)
-    {
-        if (SessionPaths.CheckName(name) is string problem)
-        {
-            return CommandOutcome.Failure(new SessionError(CommandOutput.Usage, problem));
-        }
-
-        string socketPath = SessionPaths.SocketPath(SessionPaths.Prepare(host.Directory), name);
-        SessionReply reply = await SessionClient.SendAsync(socketPath, name, "stop", NoArguments, cancellationToken).ConfigureAwait(false);
-        if (reply.Error is SessionError failure)
-        {
-            File.Delete(socketPath);
-            return CommandOutcome.Failure(failure);
-        }
-
-        return CommandOutcome.Success(new Dictionary<string, object?>() { ["name"] = name }, $"Stopped session '{name}'.");
     }
 
     // An origin is an http or https address with nothing after its host and port.

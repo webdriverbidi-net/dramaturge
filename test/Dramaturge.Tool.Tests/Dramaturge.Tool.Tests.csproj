@@ -16,6 +16,13 @@
     <PackageReference Include="xunit.v3.mtp-v2" Version="4.0.1" />
     <PackageReference Include="coverlet.MTP" Version="10.1.0" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
+    <PackageReference Include="ModelContextProtocol.Core" Version="2.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The prose that names every session command, checked against the catalogue. -->
+    <None Include="../../skills/dramaturge-session/SKILL.md" Link="prose/SKILL.md" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../docs/articles/command-line-tool.md" Link="prose/command-line-tool.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

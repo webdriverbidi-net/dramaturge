@@ -16,5 +16,6 @@ namespace Dramaturge.Tool.Sessions;
 /// <param name="Alias">A short alias of the option, such as -o.</param>
 /// <param name="Choices">The values a text parameter accepts, when it accepts only those.</param>
 /// <param name="Default">The value when the option is not given, as text; a parameter with <see cref="Choices"/> has one.</param>
-/// <param name="Required">Whether an option must be given.</param>
-internal sealed record SessionParameter(string Name, ParameterKind Kind, string Description, ParameterForm Form = ParameterForm.Option, string? CliName = null, string? Alias = null, IReadOnlyList<string>? Choices = null, string? Default = null, bool Required = false);
+/// <param name="Required">Whether an option must be given on the command line. An MCP tool requires its positional arguments only.</param>
+/// <param name="SchemaDescription">What the value is to an MCP host, when the command line's description does not fit, as an inverted flag's does not.</param>
+internal sealed record SessionParameter(string Name, ParameterKind Kind, string Description, ParameterForm Form = ParameterForm.Option, string? CliName = null, string? Alias = null, IReadOnlyList<string>? Choices = null, string? Default = null, bool Required = false, string? SchemaDescription = null);
