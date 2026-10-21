@@ -26,7 +26,7 @@
     <Company>WebDriverBiDi.NET Committers</Company>
     <Title>Dramaturge - Command-Line Tool</Title>
     <Description>The dramaturge command-line tool: installs, lists, and removes the browsers and drivers that Dramaturge.Browsers caches, and records browser actions as C#.</Description>
-    <PackageTags>dramaturge;webdriver;bidi;browser-automation;browsers;tool;codegen</PackageTags>
+    <PackageTags>dramaturge;webdriver;bidi;browser-automation;browsers;tool;codegen;mcp</PackageTags>
     <PackageProjectUrl>https://webdriverbidi-net.github.io/dramaturge/</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -40,6 +40,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="ModelContextProtocol.Core" Version="2.3.0" />
     <PackageReference Include="System.CommandLine" Version="2.0.12" />
     <PackageReference Include="StyleCop.Analyzers" Version="1.2.0-beta.556">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -51,6 +52,7 @@
     <AdditionalFiles Include="../../.stylecop.json" Link=".stylecop.json" />
     <AdditionalFiles Include="../../Dramaturge.snk" />
     <None Include="README.md" Pack="true" PackagePath="/" />
+    <EmbeddedResource Include="Mcp/instructions.md" />
   </ItemGroup>
 
 </Project>

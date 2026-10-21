@@ -5,6 +5,7 @@
 
 namespace Dramaturge.Tool.Sessions;
 
+using System.Globalization;
 using Dramaturge.Browsers;
 using WebDriverBiDi.Session;
 
@@ -23,4 +24,55 @@ using WebDriverBiDi.Session;
 /// <param name="Dialogs">How the browser answers dialogs: <see cref="UserPromptHandlerType.Dismiss"/> or <see cref="UserPromptHandlerType.Accept"/>.</param>
 /// <param name="UploadDirectories">The directories files may be uploaded from, with those below them: the directory the session was started in, then those given, as given.</param>
 /// <param name="DownloadDirectory">The directory downloads are saved in, as given, or <see langword="null"/> to refuse them.</param>
-internal sealed record SessionSettings(string Name, BrowserKind Browser, string? Channel, bool Headed, string? UserDataDirectory, TimeSpan IdleTimeout, bool MaskPasswords, IReadOnlyList<string> AllowedOrigins, bool AllowFileUrls, UserPromptHandlerType Dialogs, IReadOnlyList<string> UploadDirectories, string? DownloadDirectory);
+internal sealed record SessionSettings(string Name, BrowserKind Browser, string? Channel, bool Headed, string? UserDataDirectory, TimeSpan IdleTimeout, bool MaskPasswords, IReadOnlyList<string> AllowedOrigins, bool AllowFileUrls, UserPromptHandlerType Dialogs, IReadOnlyList<string> UploadDirectories, string? DownloadDirectory)
+{
+    /// <summary>
+    /// Gets the arguments of the <c>session serve</c> that runs a daemon with these settings. The directory the
+    /// daemon is started in is its first upload directory, so only the others are passed.
+    /// </summary>
+    /// <param name="cachePath">The browser cache directory, or <see langword="null"/> for the default.</param>
+    /// <returns>The arguments.</returns>
+    public IReadOnlyList<string> ServeArguments(string? cachePath)
+    {
+        List<string> arguments = ["session", "serve", "--session", this.Name, "--browser", this.Browser.ToString(), "--idle-timeout", ((int)this.IdleTimeout.TotalMinutes).ToString(CultureInfo.InvariantCulture), "--dialogs", this.Dialogs == UserPromptHandlerType.Accept ? "accept" : "dismiss"];
+        void Add(string option, string? value)
+        {
+            if (value is not null)
+            {
+                arguments.Add(option);
+                arguments.Add(value);
+            }
+        }
+
+        Add("--channel", this.Channel);
+        Add("--user-data-dir", this.UserDataDirectory);
+        Add("--downloads", this.DownloadDirectory);
+        Add("--path", cachePath);
+        foreach (string origin in this.AllowedOrigins)
+        {
+            Add("--allow-origin", origin);
+        }
+
+        foreach (string directory in this.UploadDirectories.Skip(1))
+        {
+            Add("--allow-upload-from", directory);
+        }
+
+        if (this.Headed)
+        {
+            arguments.Add("--headed");
+        }
+
+        if (this.MaskPasswords)
+        {
+            arguments.Add("--mask-passwords");
+        }
+
+        if (this.AllowFileUrls)
+        {
+            arguments.Add("--allow-file-urls");
+        }
+
+        return arguments;
+    }
+}

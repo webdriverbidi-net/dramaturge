@@ -12,7 +12,7 @@ namespace Dramaturge.Tool.Sessions;
 internal static class SessionCommands
 {
     private static readonly SessionParameter Ref = new("ref", ParameterKind.Text, "The element's ref, such as e7, from the current tab's latest snapshot.", ParameterForm.Argument);
-    private static readonly SessionParameter Snapshot = new("snapshot", ParameterKind.Flag, "Leave out the page's snapshot.", ParameterForm.InvertedOption, "--no-snapshot");
+    private static readonly SessionParameter Snapshot = new("snapshot", ParameterKind.Flag, "Leave out the page's snapshot.", ParameterForm.InvertedOption, "--no-snapshot", SchemaDescription: "Show the page's snapshot, or its changes, after the command; false leaves it out.");
 
     /// <summary>
     /// Gets the commands, in the order they are offered.

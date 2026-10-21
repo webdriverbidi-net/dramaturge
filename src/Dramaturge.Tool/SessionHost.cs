@@ -29,4 +29,10 @@ public sealed class SessionHost
     /// Gets the clock of a daemon's idle timeout. The default is the system's.
     /// </summary>
     public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
+
+    /// <summary>
+    /// Gets the streams the <c>mcp</c> command serves its host on, or <see langword="null"/> for the console's
+    /// standard input and output.
+    /// </summary>
+    public StandardStreams? Streams { get; init; }
 }

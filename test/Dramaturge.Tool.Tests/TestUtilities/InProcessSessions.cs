@@ -135,11 +135,17 @@ public sealed class InProcessSessions : IAsyncDisposable
         System.IO.Directory.Delete(this.Directory, true);
     }
 
-    private SessionHost Host() => new()
+    /// <summary>
+    /// Gets the sessions' host, for a tool run that is not through <see cref="RunAsync"/>.
+    /// </summary>
+    /// <param name="streams">The streams an MCP host is served on, or <see langword="null"/> for a run that serves none.</param>
+    /// <returns>The host.</returns>
+    public SessionHost Host(StandardStreams? streams = null) => new()
     {
         Directory = this.Directory,
         StartDaemon = this.StartDaemonAsync,
         TimeProvider = this.Time,
+        Streams = streams,
     };
 
     // Serves the session in this process until it ends, answering as soon as it is ready or has failed.
