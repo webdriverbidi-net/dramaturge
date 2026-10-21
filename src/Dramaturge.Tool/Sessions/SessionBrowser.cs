@@ -152,7 +152,7 @@ internal sealed class SessionBrowser : IAsyncDisposable
                 "url" or "snapshot" => await this.WithTabAsync(null, snapshot, cancellationToken).ConfigureAwait(false),
                 "tabs" => await this.TabsAsync(cancellationToken).ConfigureAwait(false),
                 "tab" => Number(arguments, "index") is int index ? await this.SwitchAsync(index, cancellationToken).ConfigureAwait(false) : BadArguments(command),
-                "screenshot" => Text(arguments, "path") is string path ? await this.ScreenshotAsync(path, Flag(arguments, "fullPage"), Text(arguments, "ref"), cancellationToken).ConfigureAwait(false) : BadArguments(command),
+                "screenshot" => await this.ScreenshotAsync(Text(arguments, "path"), Flag(arguments, "fullPage"), Text(arguments, "ref"), cancellationToken).ConfigureAwait(false),
                 "click" => await this.ActAsync(command, arguments, (locator, result, token) => ClickAsync(locator, arguments, result, token), snapshot, cancellationToken).ConfigureAwait(false),
                 "fill" => Text(arguments, "text") is string text ? await this.ActAsync(command, arguments, (locator, _, token) => locator.FillAsync(text, cancellationToken: token), snapshot, cancellationToken).ConfigureAwait(false) : BadArguments(command),
                 "press" => Text(arguments, "key") is string key ? await this.PressAsync(arguments, key, snapshot, cancellationToken).ConfigureAwait(false) : BadArguments(command),
@@ -386,8 +386,8 @@ internal sealed class SessionBrowser : IAsyncDisposable
         return DaemonAnswer.Of(described);
     }
 
-    // The whole tab, or, given a ref, its element.
-    private async Task<DaemonAnswer> ScreenshotAsync(string path, bool fullPage, string? reference, CancellationToken cancellationToken)
+    // The whole tab, or, given a ref, its element; saved to the path, or, without one, answered as base64.
+    private async Task<DaemonAnswer> ScreenshotAsync(string? path, bool fullPage, string? reference, CancellationToken cancellationToken)
     {
         if (this.Current() is not Page page)
         {
@@ -408,6 +408,11 @@ internal sealed class SessionBrowser : IAsyncDisposable
             }
 
             image = await target.Locator!.ScreenshotAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
+        if (path is null)
+        {
+            return DaemonAnswer.Of(new Dictionary<string, object?>() { ["image"] = Convert.ToBase64String(image), ["bytes"] = image.Length });
         }
 
         try

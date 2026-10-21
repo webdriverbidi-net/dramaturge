@@ -137,6 +137,20 @@ public sealed class PageCommandTests : IAsyncLifetime
         Assert.StartsWith("error[write-failed]: The screenshot could not be written to ", unwritable.Error);
     }
 
+    // A front end that cannot be given a file, such as an MCP host, asks for the image itself.
+    [Fact]
+    public async Task ScreenshotWithoutAPathIsAnsweredAsBase64()
+    {
+        await this.sessions.RunAsync("session", "start");
+        string socketPath = Path.Combine(this.sessions.Directory, "default.sock");
+
+        string answer = await InProcessSessions.ExchangeAsync(socketPath, "{\"command\":\"screenshot\",\"arguments\":{\"fullPage\":true}}\n");
+
+        Assert.Equal($"{{\"ok\":true,\"result\":{{\"image\":\"{Convert.ToBase64String(FakeBrowserServer.Screenshot)}\",\"bytes\":{FakeBrowserServer.Screenshot.Length}}}}}", answer);
+        Assert.Equal(["document"], this.Commands("browsingContext.captureScreenshot").Select(command => (string?)command["params"]!["origin"]));
+        Assert.Empty(Directory.GetFiles(this.sessions.Directory, "*.png"));
+    }
+
     // The newest 500 messages are kept; those of a tab that has closed say so.
     [Fact]
     public async Task ConsoleShowsTheMessagesSinceItLastRan()
@@ -218,7 +232,7 @@ public sealed class PageCommandTests : IAsyncLifetime
     [Theory]
     [InlineData("{\"command\":\"open\",\"arguments\":{}}")]
     [InlineData("{\"command\":\"tab\",\"arguments\":{\"index\":\"two\"}}")]
-    [InlineData("{\"command\":\"screenshot\",\"arguments\":[]}")]
+    [InlineData("{\"command\":\"open\",\"arguments\":[]}")]
     [InlineData("{\"command\":\"open\",\"arguments\":{\"url\":5}}")]
     [InlineData("{\"command\":\"tab\",\"arguments\":[]}")]
     [InlineData("{\"command\":\"tab\"}")]
