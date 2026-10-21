@@ -36,8 +36,9 @@ await Expect(page.GetByRole("heading", "Welcome, Ada")).ToBeVisibleAsync();
 
 The repository publishes two agent skills: `dramaturge`, which teaches coding agents such as Claude Code to write
 reliable tests with Dramaturge, and `dramaturge-session`, which teaches them to drive a browser with the `dramaturge`
-tool's sessions and export what they did as a test. The documentation site publishes `llms.txt` and `llms-full.txt`. To
-install the skills in Claude Code:
+tool's sessions and export what they did as a test; a host that cannot run a shell gets the same commands as tools from
+`dramaturge mcp`, the tool's MCP server. The documentation site publishes `llms.txt` and `llms-full.txt`. To install the
+skills in Claude Code:
 
     claude plugin marketplace add webdriverbidi-net/dramaturge
     claude plugin install dramaturge@dramaturge
@@ -50,7 +51,7 @@ See [Using with Coding Agents](https://webdriverbidi-net.github.io/dramaturge/ar
 | --- | --- |
 | [Dramaturge](https://www.nuget.org/packages/Dramaturge) | The automation API |
 | [Dramaturge.Browsers](https://www.nuget.org/packages/Dramaturge.Browsers) | Locates, downloads, and launches browsers, locally, on a remote grid, or already running |
-| [Dramaturge.Tool](https://www.nuget.org/packages/Dramaturge.Tool) | The `dramaturge` command-line tool, which installs and manages the browsers Dramaturge.Browsers downloads, and records what you do in a browser as C# |
+| [Dramaturge.Tool](https://www.nuget.org/packages/Dramaturge.Tool) | The `dramaturge` command-line tool, which installs and manages the browsers Dramaturge.Browsers downloads, records what you do in a browser as C#, and drives browser sessions for coding agents, from the shell or as an MCP server |
 | [Dramaturge.Xunit](https://www.nuget.org/packages/Dramaturge.Xunit), [Dramaturge.NUnit](https://www.nuget.org/packages/Dramaturge.NUnit), [Dramaturge.MSTest](https://www.nuget.org/packages/Dramaturge.MSTest), [Dramaturge.TUnit](https://www.nuget.org/packages/Dramaturge.TUnit) | Base classes for tests in each framework: a browser launched once per run, an isolated browser and page for each test, and screenshots of failed tests |
 
 ## Documentation

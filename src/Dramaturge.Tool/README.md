@@ -1,6 +1,6 @@
 # Dramaturge.Tool
 
-The `dramaturge` command-line tool, which installs, lists, and removes the browsers and drivers that [Dramaturge.Browsers](https://www.nuget.org/packages/Dramaturge.Browsers) keeps in its cache, records what you do in a browser as C#, and keeps browser sessions open for later commands to drive. Installing is most useful in continuous integration: install the browsers while building a machine image or before the tests run, so that no test waits for a download.
+The `dramaturge` command-line tool, which installs, lists, and removes the browsers and drivers that [Dramaturge.Browsers](https://www.nuget.org/packages/Dramaturge.Browsers) keeps in its cache, records what you do in a browser as C#, keeps browser sessions open for later commands to drive, and serves those commands to MCP hosts as tools. Installing is most useful in continuous integration: install the browsers while building a machine image or before the tests run, so that no test waits for a download.
 
 It uses the same cache, download sources, and verification as the library, because it is the library: each release of the tool bundles the Dramaturge.Browsers of the same version.
 
@@ -179,9 +179,24 @@ dramaturge code --target xunit -o LoginTests.cs
 
 The code is written without the page content lines, so that it can be redirected to a file, though it holds text from the pages, such as accessible names, in its string literals; review it as any generated code. The code of a session started with `--dialogs accept` sets its browser to accept dialogs too. `--reset` starts the recording over once the code is written, so that the code comes from what is done next, without the exploring before it; `open` the page the test starts from right after it.
 
+## MCP Server
+
+`mcp` serves the session commands to a Model Context Protocol host, such as Claude Desktop or Claude Code, over its standard input and output, as tools: `session_start`, `session_list`, and `session_stop`, then each command of [Driving a Session](#driving-a-session) under its own name, with the arguments the command takes and an optional `session` to name the session.
+
+```bash
+dramaturge mcp --allow-origin https://staging.example.com --downloads ./downloads
+```
+
+| Option of `mcp` | Meaning |
+| --- | --- |
+| Every option of `session start` but `--session`, `--browser`, and `--channel` | Applies to every session the host starts; `session_start` takes the name, browser, and channel |
+| `--path` | The browser cache, as for `browsers` |
+
+The host adds the server to its configuration; in Claude Code, `claude mcp add dramaturge -- dramaturge mcp`. A tool's result is the command's answer, as text with the page content lines, or its error line and details; `screenshot` returns the image unless it is given a `path`. The sessions the host started stop when it closes the connection. [Driving a Browser from an Agent](https://webdriverbidi-net.github.io/dramaturge/articles/driving-a-browser.html#through-mcp) describes the tools from the host's side.
+
 ## The Cache
 
-`browsers`, `codegen`, and `session start` take `--path` to choose the cache directory. Otherwise, the tool uses the same directory as the library: `DRAMATURGE_BROWSERS_PATH` if it is set, or else the per-user cache directory. The library's other environment variables apply too, such as `DRAMATURGE_DOWNLOAD_MANIFEST` to download from a mirror. The [Browser Setup guide](https://webdriverbidi-net.github.io/dramaturge/articles/browser-setup.html) describes them.
+`browsers`, `codegen`, `session start`, and `mcp` take `--path` to choose the cache directory. Otherwise, the tool uses the same directory as the library: `DRAMATURGE_BROWSERS_PATH` if it is set, or else the per-user cache directory. The library's other environment variables apply too, such as `DRAMATURGE_DOWNLOAD_MANIFEST` to download from a mirror. The [Browser Setup guide](https://webdriverbidi-net.github.io/dramaturge/articles/browser-setup.html) describes them.
 
 A test run can then use what the tool installed:
 

@@ -1,6 +1,6 @@
 # Driving a Browser from an Agent
 
-A coding agent that works through a shell, such as Claude Code, can drive a browser with the [command-line tool](command-line-tool.md): it starts a session, opens a page, reads the page's accessibility snapshot, acts on the elements the snapshot names, checks what happened, and, when it is done, exports everything it did as a Dramaturge test. Each step is one `dramaturge` command, whose answer is short text, or JSON with `--json`, so the agent reads the page as a list of elements rather than as pixels or HTML.
+A coding agent that works through a shell, such as Claude Code, can drive a browser with the [command-line tool](command-line-tool.md): it starts a session, opens a page, reads the page's accessibility snapshot, acts on the elements the snapshot names, checks what happened, and, when it is done, exports everything it did as a Dramaturge test. Each step is one `dramaturge` command, whose answer is short text, or JSON with `--json`, so the agent reads the page as a list of elements rather than as pixels or HTML. A host that cannot run a shell, such as Claude Desktop, gets the same commands as the tools of an MCP server, as [Through MCP](#through-mcp) describes.
 
 The export is what sets this apart: the session records itself as `codegen` does, so the test it gives repeats the agent's steps with locators chosen for lasting, not the session's refs, and with the waits and assertions the agent made.
 
@@ -12,6 +12,31 @@ dramaturge browsers install chrome
 ```
 
 `session start` downloads the browser itself if it must, but installing it first keeps the first command quick. [Command-Line Tool](command-line-tool.md) describes every command and option; this article describes how they fit together.
+
+## Through MCP
+
+For a host that cannot run a shell, `dramaturge mcp` serves the same commands as the tools of a [Model Context Protocol](https://modelcontextprotocol.io/) server, over its standard input and output. In Claude Code:
+
+```bash
+claude mcp add dramaturge -- dramaturge mcp
+```
+
+In Claude Desktop, or any host that starts local servers from a configuration file:
+
+```json
+{
+  "mcpServers": {
+    "dramaturge": {
+      "command": "dramaturge",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+The tools are the commands under their own names, `open`, `snapshot`, `click`, `expect`, `code`, and so on, with the arguments the commands take, and `session_start`, `session_list`, and `session_stop` for the session itself. Every tool takes an optional `session`, so a host can drive several at once. A tool's result is the command's answer as text, with the same page content lines, or, for an error, its `error[code]: message — hint` line and details; `screenshot` returns the image itself unless it is given a `path`. The server's instructions, which a host shows its model, carry [the loop](#the-agents-loop) below.
+
+What the sessions allow is fixed by whoever configures the server, not by the model: the options of `session start` in [What a Session Allows](#what-a-session-allows), except `--session`, `--browser`, and `--channel`, are options of `dramaturge mcp`, and apply to every session the host starts; `session_start` takes only the name, browser, and channel. A configuration such as `dramaturge mcp --allow-origin https://staging.example.com --downloads ./downloads` fixes what the model may reach. The sessions the host starts stop when it closes the connection, as `session stop` would stop them; a session started from the shell is left alone, and can be driven from both. Relative paths, as for `screenshot`, `upload`, and `code`, are read against the directory the host started the server in.
 
 ## A Session, Start to Test
 
@@ -146,7 +171,7 @@ An action's answer says what it did, and whether the tab navigated; then, betwee
 
 | Error code | Meaning, and what to do |
 | --- | --- |
-| `usage` | The arguments cannot be used; the hint names the help to read |
+| `usage` | The arguments cannot be used; on the command line, the hint names the help to read |
 | `no-session` | No session of the name is running; start one |
 | `session-exists` | A session of the name is already running; stop it or use another name |
 | `start-failed` | The browser could not be started |
@@ -190,4 +215,4 @@ The exported code is a draft, as `codegen`'s is ([Code Generation](codegen.md)):
 - The snapshot after an action is taken at once, so it can show the page before a navigation the action started has arrived; use `expect` when the next step depends on it.
 - An action brings its tab to the front first, since Chrome draws nothing in a tab behind another, and actions wait for the page to be drawn.
 - A session killed outright (SIGKILL), or that crashes, cannot close its browser.
-- An agent that cannot run a shell cannot use the tool; for it, the library itself is the way to drive a browser.
+- An agent that cannot run a shell drives the tool through its [MCP server](#through-mcp); one that cannot start a local process at all cannot use the tool, and the library itself is the way to drive a browser from code.
