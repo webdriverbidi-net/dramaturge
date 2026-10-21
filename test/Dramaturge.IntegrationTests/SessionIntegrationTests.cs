@@ -58,7 +58,7 @@ public partial class SessionIntegrationTests
     }
 
     // The ref of the snapshot's line that starts with a role and name.
-    private static string Ref(string snapshot, string roleAndName)
+    internal static string Ref(string snapshot, string roleAndName)
     {
         Match match = new Regex($"- {Regex.Escape(roleAndName)}.*\\[ref=([a-z0-9]+)\\]").Match(snapshot);
         Assert.True(match.Success, $"No {roleAndName} in:\n{snapshot}");
@@ -75,7 +75,7 @@ public partial class SessionIntegrationTests
     }
 
     // Serves the session in this process, with the test's browser, answering once it is ready or has failed.
-    private static async Task<string?> StartDaemonAsync(IReadOnlyList<string> serveArguments, TextWriter error, BrowserKind browserKind, SessionHost host, List<Task<int>> daemons)
+    internal static async Task<string?> StartDaemonAsync(IReadOnlyList<string> serveArguments, TextWriter error, BrowserKind browserKind, SessionHost host, List<Task<int>> daemons)
     {
         ReadyWriter ready = new();
         daemons.Add(DramaturgeTool.RunAsync([.. serveArguments], ready, error, configureLauncher: builder => TestBrowsers.Locate(builder, browserKind), sessionHost: host, cancellationToken: CancellationToken.None));
