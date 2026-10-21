@@ -21,7 +21,7 @@ For code that works with the WebDriver BiDi protocol directly, WebDriverBiDi.NET
 
 ## Driving a Browser
 
-An agent that runs shell commands can also drive a browser itself, through the command-line tool's sessions: open a page, read its accessibility snapshot, act on its elements, check the result, and export what it did as a Dramaturge test. [Driving a Browser from an Agent](driving-a-browser.md) describes how, and the `dramaturge-session` skill teaches it to the agent.
+An agent that runs shell commands can also drive a browser itself, through the command-line tool's sessions: open a page, read its accessibility snapshot, act on its elements, check the result, and export what it did as a Dramaturge test. [Driving a Browser from an Agent](driving-a-browser.md) describes how, and the `dramaturge-session` skill teaches it to the agent. A host that cannot run a shell, such as Claude Desktop, gets the same commands as the tools of the tool's MCP server, `dramaturge mcp`, which the same article describes.
 
 ## The Documentation as Text
 
