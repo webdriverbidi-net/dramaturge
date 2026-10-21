@@ -313,80 +313,92 @@ public static class DramaturgeTool
         return async (parseResult, token) => CommandOutput.Write(await run(parseResult, token).ConfigureAwait(false), parseResult.GetValue(jsonOption), output, error);
     }
 
-    // The commands that drive a session's browser, each sent to the session's daemon.
+    // The commands that drive a session's browser, each built from the catalogue and sent to the session's daemon.
     private static Command[] CreatePageCommands(Option<string> sessionOption, Option<bool> jsonOption, SessionHost host, TextWriter output, TextWriter error)
     {
-        Option<bool> noSnapshotOption = new("--no-snapshot") { Description = "Leave out the page's snapshot." };
-        Argument<string> urlArgument = new("url") { Description = "The address to open, such as https://example.com/." };
-        Argument<int> indexArgument = new("index") { Description = "The tab's number, as tabs lists it." };
-        Option<string> outputOption = new("--output", "-o") { Description = "The file to save the screenshot in, as PNG.", Required = true };
-        Option<bool> fullPageOption = new("--full-page") { Description = "Capture the whole page, not only what the window shows." };
-        Option<bool> allOption = new("--all") { Description = "Show every message kept, not only those since the last console command." };
-        Option<string?> screenshotRefOption = new("--ref") { Description = "The ref of an element to capture alone, such as e7." };
-        Argument<string> refArgument = new("ref") { Description = "The element's ref, such as e7, from the current tab's latest snapshot." };
-        Argument<string> textArgument = new("text") { Description = "The text to fill the field with, in place of what it has." };
-        Argument<string> keyArgument = new("key") { Description = "The key, such as Enter, a, or Control+a." };
-        Argument<string[]> valuesArgument = new("values") { Description = "The options to select, by the labels the snapshot shows.", Arity = ArgumentArity.OneOrMore };
-        Argument<string[]> filesArgument = new("files") { Description = "The files to upload.", Arity = ArgumentArity.OneOrMore };
-        Option<bool> doubleOption = new("--double") { Description = "Click twice, as a double click." };
-        Option<string> buttonOption = new("--button") { Description = "The mouse button: left (the default), right, or middle.", DefaultValueFactory = _ => "left" };
-        buttonOption.AcceptOnlyFromAmong("left", "right", "middle");
-        Argument<string[]> conditionArgument = new("condition")
-        {
-            Description = "The condition: e5 visible, hidden, enabled, checked, or unchecked; e5 text <text> or value <value>; e5 snapshot [<template>]; or, of the tab, url <url>, title <title>, or text <text>.",
-            Arity = ArgumentArity.OneOrMore,
-        };
-        Option<int?> timeoutOption = new("--timeout") { Description = "The seconds to wait for the condition; the default is 5." };
-        Option<CodeTarget> codeTargetOption = new("--target") { Description = "The kind of file: program (the default), xunit, nunit, mstest, or tunit.", DefaultValueFactory = _ => CodeTarget.Program };
-        Option<string?> codeOutputOption = new("--output", "-o") { Description = "A file to write the code to, instead of showing it." };
-        Option<bool> resetOption = new("--reset") { Description = "Then start the recording over: the code comes from what is done next. Open the page the test starts from next." };
-        Option<bool> byValueOption = new("--by-value") { Description = "Match options by their values, not their labels." };
-        Command Page(string name, string description, Func<ParseResult, Dictionary<string, object?>> arguments, params Symbol[] symbols)
-        {
-            Command command = new(name, description);
-            foreach (Symbol symbol in symbols)
-            {
-                if (symbol is Argument argument)
-                {
-                    command.Add(argument);
-                }
-                else
-                {
-                    command.Add((Option)symbol);
-                }
-            }
+        return [.. SessionCommands.Page.Select(entry => CreatePageCommand(entry, sessionOption, jsonOption, host, output, error))];
+    }
 
-            command.Add(sessionOption);
-            command.Add(jsonOption);
-            command.SetAction(WrittenAction((parseResult, token) => SendToSessionAsync(host, parseResult.GetValue(sessionOption)!, name, arguments(parseResult), token), jsonOption, output, error));
-            return command;
+    private static Command CreatePageCommand(SessionCommand entry, Option<string> sessionOption, Option<bool> jsonOption, SessionHost host, TextWriter output, TextWriter error)
+    {
+        Command command = new(entry.Name, entry.Description);
+        Dictionary<string, Symbol> symbols = [];
+        foreach (SessionParameter parameter in entry.Parameters)
+        {
+            Symbol symbol = CreateSymbol(parameter);
+            symbols[parameter.Name] = symbol;
+            if (symbol is Argument argument)
+            {
+                command.Add(argument);
+            }
+            else
+            {
+                command.Add((Option)symbol);
+            }
         }
 
-        Dictionary<string, object?> Snapshot(ParseResult parseResult) => new() { ["snapshot"] = !parseResult.GetValue(noSnapshotOption) };
-        Dictionary<string, object?> Act(ParseResult parseResult, Dictionary<string, object?>? more = null) => new([new("ref", parseResult.GetValue(refArgument)), new("snapshot", !parseResult.GetValue(noSnapshotOption)), .. more ?? []]);
-        return
-        [
-            Page("open", "Open an address in the session's current tab, and show its snapshot.", parseResult => new() { ["url"] = parseResult.GetValue(urlArgument), ["snapshot"] = !parseResult.GetValue(noSnapshotOption) }, urlArgument, noSnapshotOption),
-            Page("back", "Go back in the current tab's history, and show its snapshot.", Snapshot, noSnapshotOption),
-            Page("forward", "Go forward in the current tab's history, and show its snapshot.", Snapshot, noSnapshotOption),
-            Page("reload", "Reload the current tab, and show its snapshot.", Snapshot, noSnapshotOption),
-            Page("url", "Show the current tab's address and title.", _ => new() { ["snapshot"] = false }),
-            Page("snapshot", "Show the current tab's accessibility snapshot, whose refs, such as e7, name its elements.", _ => new() { ["snapshot"] = true }),
-            Page("tabs", "List the session's tabs.", _ => []),
-            Page("tab", "Make a tab the current one.", parseResult => new() { ["index"] = parseResult.GetValue(indexArgument) }, indexArgument),
-            Page("screenshot", "Save a screenshot of the current tab, or of an element in it.", parseResult => new() { ["path"] = Path.GetFullPath(parseResult.GetValue(outputOption)!), ["fullPage"] = parseResult.GetValue(fullPageOption), ["ref"] = parseResult.GetValue(screenshotRefOption) }, outputOption, fullPageOption, screenshotRefOption),
-            Page("click", "Click an element, and show what changed.", parseResult => Act(parseResult, new() { ["double"] = parseResult.GetValue(doubleOption), ["button"] = parseResult.GetValue(buttonOption) }), refArgument, doubleOption, buttonOption, noSnapshotOption),
-            Page("fill", "Fill a field with text, and show what changed.", parseResult => Act(parseResult, new() { ["text"] = parseResult.GetValue(textArgument) }), refArgument, textArgument, noSnapshotOption),
-            Page("press", "Press a key in an element, and show what changed.", parseResult => Act(parseResult, new() { ["key"] = parseResult.GetValue(keyArgument) }), refArgument, keyArgument, noSnapshotOption),
-            Page("select", "Select options in a select element, and show what changed.", parseResult => Act(parseResult, new() { ["values"] = parseResult.GetValue(valuesArgument), ["byValue"] = parseResult.GetValue(byValueOption) }), refArgument, valuesArgument, byValueOption, noSnapshotOption),
-            Page("check", "Check a checkbox or radio button, and show what changed.", parseResult => Act(parseResult), refArgument, noSnapshotOption),
-            Page("uncheck", "Uncheck a checkbox, and show what changed.", parseResult => Act(parseResult), refArgument, noSnapshotOption),
-            Page("hover", "Move the mouse over an element, and show what changed.", parseResult => Act(parseResult), refArgument, noSnapshotOption),
-            Page("upload", "Choose files for a file input, and show what changed.", parseResult => Act(parseResult, new() { ["files"] = parseResult.GetValue(filesArgument)!.Select(Path.GetFullPath).ToArray() }), refArgument, filesArgument, noSnapshotOption),
-            Page("expect", "Wait until a condition is met, and assert it; the session's code records the assertion.", parseResult => new() { ["condition"] = parseResult.GetValue(conditionArgument), ["timeout"] = parseResult.GetValue(timeoutOption) }, conditionArgument, timeoutOption),
-            Page("code", "Show the session's recording as C#: a program, or, with --target, a test class.", parseResult => new() { ["target"] = parseResult.GetValue(codeTargetOption).ToString().ToLowerInvariant(), ["path"] = parseResult.GetValue(codeOutputOption) is string path ? Path.GetFullPath(path) : null, ["reset"] = parseResult.GetValue(resetOption) }, codeTargetOption, codeOutputOption, resetOption),
-            Page("console", "Show the console messages, and uncaught errors, of the session's tabs since the last console command.", parseResult => new() { ["all"] = parseResult.GetValue(allOption) }, allOption),
-        ];
+        command.Add(sessionOption);
+        command.Add(jsonOption);
+        command.SetAction(WrittenAction((parseResult, token) => SendToSessionAsync(host, parseResult.GetValue(sessionOption)!, entry.Name, Arguments(entry, symbols, parseResult), token), jsonOption, output, error));
+        return command;
+    }
+
+    private static Symbol CreateSymbol(SessionParameter parameter)
+    {
+        if (parameter.Form == ParameterForm.Argument)
+        {
+            return parameter.Kind switch
+            {
+                ParameterKind.Number => new Argument<int>(parameter.Name) { Description = parameter.Description },
+                ParameterKind.Texts or ParameterKind.Paths => new Argument<string[]>(parameter.Name) { Description = parameter.Description, Arity = ArgumentArity.OneOrMore },
+                _ => new Argument<string>(parameter.Name) { Description = parameter.Description },
+            };
+        }
+
+        string name = parameter.CliName ?? $"--{parameter.Name}";
+        string[] aliases = parameter.Alias is null ? [] : [parameter.Alias];
+        switch (parameter.Kind)
+        {
+            case ParameterKind.Flag:
+                return new Option<bool>(name, aliases) { Description = parameter.Description };
+            case ParameterKind.Number:
+                return new Option<int?>(name, aliases) { Description = parameter.Description };
+            default:
+                if (parameter.Choices is null)
+                {
+                    return new Option<string?>(name, aliases) { Description = parameter.Description, Required = parameter.Required };
+                }
+
+                Option<string> choice = new(name, aliases) { Description = parameter.Description, DefaultValueFactory = _ => parameter.Default! };
+                choice.AcceptOnlyFromAmong([.. parameter.Choices]);
+                return choice;
+        }
+    }
+
+    private static Dictionary<string, object?> Arguments(SessionCommand entry, Dictionary<string, Symbol> symbols, ParseResult parseResult)
+    {
+        Dictionary<string, object?> arguments = new(entry.Fixed ?? NoArguments);
+        foreach (SessionParameter parameter in entry.Parameters)
+        {
+            arguments[parameter.Name] = Read(parameter, symbols[parameter.Name], parseResult);
+        }
+
+        return arguments;
+    }
+
+    private static object? Read(SessionParameter parameter, Symbol symbol, ParseResult parseResult)
+    {
+        bool positional = parameter.Form == ParameterForm.Argument;
+        string? Text() => positional ? parseResult.GetValue((Argument<string>)symbol) : parseResult.GetValue((Option<string?>)symbol);
+        return parameter.Kind switch
+        {
+            ParameterKind.Flag => parseResult.GetValue((Option<bool>)symbol) != (parameter.Form == ParameterForm.InvertedOption),
+            ParameterKind.Number => positional ? parseResult.GetValue((Argument<int>)symbol) : parseResult.GetValue((Option<int?>)symbol),
+            ParameterKind.Texts => parseResult.GetValue((Argument<string[]>)symbol),
+            ParameterKind.Paths => parseResult.GetValue((Argument<string[]>)symbol)!.Select(Path.GetFullPath).ToArray(),
+            ParameterKind.Path => Text() is string path ? Path.GetFullPath(path) : null,
+            _ => Text(),
+        };
     }
 
     private static async Task<CommandOutcome> SendToSessionAsync(SessionHost host, string name, string command, Dictionary<string, object?> arguments, CancellationToken cancellationToken)
